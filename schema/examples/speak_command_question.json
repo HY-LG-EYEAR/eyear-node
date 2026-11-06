@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1",
+  "command_id": "00000000-0000-4000-8000-0000000000c1",
+  "timestamp": "2026-10-30T22:00:42+09:00",
+  "text": "A님, 주무실 건가요?",
+  "expect_reply": true,
+  "listen_seconds": 5.0
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1",
+  "command_id": "00000000-0000-4000-8000-000000000201",
+  "timestamp": "2026-10-30T22:05:01+09:00",
+  "text": "네, 불을 켤게요",
+  "expect_reply": false,
+  "listen_seconds": 5.0
+}

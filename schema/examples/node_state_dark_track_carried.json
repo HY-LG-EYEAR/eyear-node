@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.1",
+  "event_id": "00000000-0000-4000-8000-000000000003",
+  "node_id": "node_room1",
+  "room_id": "room1",
+  "timestamp": "2026-10-30T22:01:10+09:00",
+  "seq": 3,
+  "event_type": "STATE_CHANGE",
+  "changes": [
+    {
+      "type": "LIGHT_CHANGED",
+      "track_id": null
+    },
+    {
+      "type": "IDENTITY_CHANGED",
+      "track_id": 1
+    }
+  ],
+  "occupancy": {
+    "state": "OCCUPIED",
+    "confidence": 0.93
+  },
+  "persons": [
+    {
+      "track_id": 1,
+      "identity": "MEMBER_A",
+      "identity_confidence": 0.75,
+      "identity_source": "TRACK_CARRIED",
+      "posture": "LYING",
+      "posture_confidence": 0.6,
+      "motion": "STILL",
+      "activity": "RESTING",
+      "activity_confidence": 0.7,
+      "position": {
+        "x": 2.6,
+        "y": 3.1
+      }
+    }
+  ],
+  "audio": {
+    "context": "SILENT",
+    "confidence": 0.85
+  },
+  "light": "DARK"
+}

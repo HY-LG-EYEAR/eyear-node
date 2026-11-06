@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "description": "중앙 → Node. Node는 text를 TTS로 출력하고, expect_reply면 출력이 끝난 뒤 듣는다.",
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "expect_reply": {
+      "title": "Expect Reply",
+      "type": "boolean"
+    },
+    "listen_seconds": {
+      "default": 5.0,
+      "description": "expect_reply일 때 최대 듣기 시간(초)",
+      "exclusiveMinimum": 0,
+      "maximum": 10,
+      "title": "Listen Seconds",
+      "type": "number"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "timestamp",
+    "text",
+    "expect_reply",
+    "listen_seconds"
+  ],
+  "title": "SpeakCommand",
+  "type": "object"
+}

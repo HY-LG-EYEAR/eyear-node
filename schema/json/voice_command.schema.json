@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "description": "Node → 중앙. 웨이크워드 \"하이 엘지\" 뒤의 발화.",
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "node_id": {
+      "description": "소문자, 숫자, 밑줄",
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Node Id",
+      "type": "string"
+    },
+    "room_id": {
+      "description": "소문자, 숫자, 밑줄",
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Room Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "ISO 8601, 시간대 포함",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "type": {
+      "const": "VOICE_COMMAND",
+      "default": "VOICE_COMMAND",
+      "title": "Type",
+      "type": "string"
+    },
+    "text": {
+      "description": "웨이크워드를 뺀 인식 문장",
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "confidence": {
+      "description": "신뢰도 0~1",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "node_id",
+    "room_id",
+    "timestamp",
+    "type",
+    "text",
+    "confidence"
+  ],
+  "title": "VoiceCommand",
+  "type": "object"
+}

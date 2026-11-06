@@ -1,0 +1,216 @@
+# 여름 저녁 시나리오 (CLAUDE.md §6). A가 방1에서 휴식·수면 → 거실로 나와 B 옆에 앉음.
+#
+# - 단계마다 바뀌는 방만 적는다. 적지 않은 방은 이전 단계 상태를 그대로 유지(heartbeat는 계속 나감).
+# - changes는 적지 않는다. 송신기가 이전 상태와 비교해 자동으로 만든다.
+# - 좌표는 방 기준 미터. 원점·축 방향은 팀원2와 합의 전 임시값 (방1: 문 쪽 모서리가 원점, 침대는 안쪽).
+# - track_id는 Node마다 따로 매긴다 (거실에서 B=1, A=2).
+# - 실물 Node는 방1뿐이고 나머지 방은 같은 Node가 있다고 가정한 가짜 데이터.
+
+name: summer_evening
+
+nodes:
+  room1: node_room1
+  room2: node_room2
+  living: node_living
+  laundry: node_laundry
+
+_templates:
+  empty_dark: &empty_dark
+    occupancy: { state: EMPTY, confidence: 0.95 }
+    persons: []
+    audio: { context: SILENT, confidence: 0.85 }
+    light: DARK
+  B_on_sofa: &B_on_sofa
+    track_id: 1
+    identity: MEMBER_B
+    identity_confidence: 0.93
+    identity_source: FACE
+    posture: SITTING
+    posture_confidence: 0.90
+    motion: SLIGHT
+    activity: OTHER
+    activity_confidence: 0.85
+    position: { x: 2.0, y: 3.0 }   # 소파 위쪽 자리
+
+steps:
+  - id: t0
+    title: 세탁기 작동 중, 거실에서 B 혼자 TV 시청, 로봇청소기 방2 청소 완료
+    expect: 거실 에어컨 26°C(B 선호) 바람은 B 쪽 / 청소기는 거실을 지나 도크로 복귀
+    rooms:
+      room1:
+        occupancy: { state: EMPTY, confidence: 0.95 }
+        persons: []
+        audio: { context: SILENT, confidence: 0.80 }
+        light: BRIGHT
+      room2: *empty_dark
+      laundry:
+        occupancy: { state: EMPTY, confidence: 0.95 }
+        persons: []
+        audio: { context: LOUD_NOISE, confidence: 0.80 }   # 세탁기 소리
+        light: DIM
+      living:
+        occupancy: { state: OCCUPIED, confidence: 0.97 }
+        persons: [ *B_on_sofa ]
+        audio: { context: TV, confidence: 0.82 }
+        light: BRIGHT
+
+  - id: t1
+    title: A가 밝은 방1에 들어옴 → 얼굴로 A 식별
+    expect: 청소기 도크 대기(방1 보류), 세탁기 저소음, 방1 에어컨 24°C
+    rooms:
+      room1:
+        occupancy: { state: OCCUPIED, confidence: 0.95 }
+        persons:
+          - track_id: 1
+            identity: MEMBER_A
+            identity_confidence: 0.91
+            identity_source: FACE
+            posture: STANDING
+            posture_confidence: 0.88
+            motion: ACTIVE
+            activity: OTHER
+            activity_confidence: 0.85
+            position: { x: 1.0, y: 0.8 }
+        audio: { context: SILENT, confidence: 0.80 }
+        light: BRIGHT
+
+  - id: t2
+    title: A가 침대에 누움 → RESTING
+    expect: 중앙이 질문 생성 → room1 speak 토픽으로 "A님, 주무실 건가요?"
+    rooms:
+      room1:
+        occupancy: { state: OCCUPIED, confidence: 0.97 }
+        persons:
+          - track_id: 1
+            identity: MEMBER_A
+            identity_confidence: 0.92
+            identity_source: FACE
+            posture: LYING
+            posture_confidence: 0.84
+            motion: SLIGHT
+            activity: RESTING
+            activity_confidence: 0.80
+            position: { x: 2.6, y: 3.1 }   # 침대
+        audio: { context: SILENT, confidence: 0.80 }
+        light: BRIGHT
+
+  - id: t3
+    title: A가 "응"이라고 대답 (방 상태 변화 없음)
+    expect: >
+      중앙의 질문에 가짜 음성 Node가 --reply 값으로 대답 (MQTT 사용 시) →
+      중앙이 커튼 닫고 조명 끔
+    rooms: {}
+
+  - id: t4
+    title: "[수면 중] 방1 어두움 → 레이더로 재실 유지, 신원 TRACK_CARRIED"
+    expect: 청소기 보류·세탁기 저소음 유지
+    rooms:
+      room1:
+        occupancy: { state: OCCUPIED, confidence: 0.93 }
+        persons:
+          - track_id: 1
+            identity: MEMBER_A
+            identity_confidence: 0.75      # 카메라로 확인할 수 없으므로 낮춤
+            identity_source: TRACK_CARRIED
+            posture: LYING
+            posture_confidence: 0.60       # 어둠 속에서는 마지막 자세를 유지, 신뢰도 낮춤
+            motion: STILL
+            activity: RESTING
+            activity_confidence: 0.70
+            position: { x: 2.6, y: 3.1 }
+        audio: { context: SILENT, confidence: 0.85 }
+        light: DARK
+
+  - id: t5-1
+    title: "[기상] A \"하이 엘지, 불 켜줘\""
+    expect: 중앙이 조명 켬 → room1 speak 토픽으로 "네, 불을 켤게요"
+    voice_commands:
+      - { room: room1, text: 불 켜줘, confidence: 0.81 }
+    rooms:
+      room1:
+        occupancy: { state: OCCUPIED, confidence: 0.96 }
+        persons:
+          - track_id: 1
+            identity: MEMBER_A
+            identity_confidence: 0.75
+            identity_source: TRACK_CARRIED
+            posture: LYING
+            posture_confidence: 0.55
+            motion: ACTIVE                 # 레이더: 몸을 움직임
+            activity: RESTING
+            activity_confidence: 0.55
+            position: { x: 2.6, y: 3.1 }
+        audio: { context: SPEECH, confidence: 0.78 }
+        light: DARK
+
+  - id: t5-2
+    title: 밝아짐 → 카메라가 A 재확인 (FACE 복귀). 커튼은 닫힌 채
+    expect: 커튼은 요청이 없으므로 그대로
+    rooms:
+      room1:
+        occupancy: { state: OCCUPIED, confidence: 0.97 }
+        persons:
+          - track_id: 1
+            identity: MEMBER_A
+            identity_confidence: 0.93
+            identity_source: FACE
+            posture: SITTING
+            posture_confidence: 0.85
+            motion: ACTIVE
+            activity: OTHER
+            activity_confidence: 0.85
+            position: { x: 2.4, y: 2.9 }
+        audio: { context: SILENT, confidence: 0.80 }
+        light: BRIGHT
+
+  - id: t6
+    title: A가 방1을 나감 → 방1 비어 있음
+    expect: 청소기 도크에서 나와 방1 청소 시작 / 세탁기 일반 모드 / 방1 에어컨 꺼짐
+    rooms:
+      room1:
+        occupancy: { state: EMPTY, confidence: 0.95 }
+        persons: []
+        audio: { context: SILENT, confidence: 0.80 }
+        light: BRIGHT
+
+  - id: t7-1
+    title: A가 거실에 들어옴 → 거실 Node가 A 식별
+    expect: 온도 에이전트가 A·B 모두 거실에 있음을 파악
+    rooms:
+      living:
+        occupancy: { state: OCCUPIED, confidence: 0.97 }
+        persons:
+          - *B_on_sofa
+          - track_id: 2
+            identity: MEMBER_A
+            identity_confidence: 0.90
+            identity_source: FACE
+            posture: WALKING
+            posture_confidence: 0.82
+            motion: ACTIVE
+            activity: OTHER
+            activity_confidence: 0.85
+            position: { x: 0.8, y: 1.0 }
+        audio: { context: TV, confidence: 0.82 }
+        light: BRIGHT
+
+  - id: t7-2
+    title: A가 소파 아래쪽 자리, B 옆에 앉음
+    expect: 거실 에어컨 26°C → 25°C (A·B 평균), 바람 B 쪽 → A 쪽. 앉은 것은 RESTING 아님 → 질문 없음
+    rooms:
+      living:
+        occupancy: { state: OCCUPIED, confidence: 0.98 }
+        persons:
+          - *B_on_sofa
+          - track_id: 2
+            identity: MEMBER_A
+            identity_confidence: 0.92
+            identity_source: FACE
+            posture: SITTING
+            posture_confidence: 0.88
+            motion: SLIGHT
+            activity: OTHER
+            activity_confidence: 0.85
+            position: { x: 2.0, y: 1.8 }   # 소파 아래쪽 자리
+        audio: { context: TV, confidence: 0.82 }
+        light: BRIGHT

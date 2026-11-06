@@ -56,7 +56,12 @@ def now() -> datetime:
 
 class _Model(BaseModel):
     # 모르는 필드가 오면 거부 → 오타나 버전 불일치를 바로 발견
-    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+    # 기본값이 있는 필드(event_id 등)도 보내는 메시지에는 항상 들어가므로 JSON Schema에서 required로 표시
+    model_config = ConfigDict(
+        extra="forbid",
+        use_enum_values=True,
+        json_schema_serialization_defaults_required=True,
+    )
 
 
 class _Envelope(_Model):

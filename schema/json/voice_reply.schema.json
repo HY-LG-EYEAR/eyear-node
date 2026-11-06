@@ -1,0 +1,92 @@
+{
+  "additionalProperties": false,
+  "description": "Node → 중앙. SpeakCommand 질문에 대한 대답. \"응/아니\" 해석은 중앙이 한다.",
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "node_id": {
+      "description": "소문자, 숫자, 밑줄",
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Node Id",
+      "type": "string"
+    },
+    "room_id": {
+      "description": "소문자, 숫자, 밑줄",
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Room Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "ISO 8601, 시간대 포함",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "type": {
+      "const": "VOICE_REPLY",
+      "default": "VOICE_REPLY",
+      "title": "Type",
+      "type": "string"
+    },
+    "command_id": {
+      "description": "대답한 SpeakCommand의 command_id",
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "인식한 문장. 응답이 없으면 null",
+      "title": "Text"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "description": "신뢰도 0~1",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "음성 인식 신뢰도. 응답이 없으면 null",
+      "title": "Confidence"
+    },
+    "no_response": {
+      "title": "No Response",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "node_id",
+    "room_id",
+    "timestamp",
+    "type",
+    "command_id",
+    "text",
+    "confidence",
+    "no_response"
+  ],
+  "title": "VoiceReply",
+  "type": "object"
+}

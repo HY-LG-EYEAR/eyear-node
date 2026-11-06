@@ -1,0 +1,10 @@
+{
+  "schema_version": "0.1",
+  "event_id": "00000000-0000-4000-8000-000000000103",
+  "node_id": "node_room1",
+  "room_id": "room1",
+  "timestamp": "2026-10-30T22:05:00+09:00",
+  "type": "VOICE_COMMAND",
+  "text": "불 켜줘",
+  "confidence": 0.81
+}

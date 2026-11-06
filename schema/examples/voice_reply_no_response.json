@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.1",
+  "event_id": "00000000-0000-4000-8000-000000000102",
+  "node_id": "node_room1",
+  "room_id": "room1",
+  "timestamp": "2026-10-30T22:00:49+09:00",
+  "type": "VOICE_REPLY",
+  "command_id": "00000000-0000-4000-8000-0000000000c1",
+  "text": null,
+  "confidence": null,
+  "no_response": true
+}

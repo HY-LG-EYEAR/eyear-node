@@ -1,0 +1,20 @@
+{
+  "schema_version": "0.1",
+  "event_id": "00000000-0000-4000-8000-000000000005",
+  "node_id": "node_room1",
+  "room_id": "room1",
+  "timestamp": "2026-10-30T22:01:14+09:00",
+  "seq": 5,
+  "event_type": "HEARTBEAT",
+  "changes": [],
+  "occupancy": {
+    "state": "UNKNOWN",
+    "confidence": 0.0
+  },
+  "persons": [],
+  "audio": {
+    "context": "UNKNOWN",
+    "confidence": 0.0
+  },
+  "light": "UNKNOWN"
+}
