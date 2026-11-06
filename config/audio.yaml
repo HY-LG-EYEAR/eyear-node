@@ -1,0 +1,41 @@
+# 마이크·스피커 처리 설정. 값은 임시이며 팀원 목소리로 측정한 뒤 조정한다.
+
+mic:
+  device: null               # null이면 기본 입력 장치. 장치 목록: python -m audio.listen --devices
+
+tts:
+  voice: Yuna                # macOS 한국어 음성 (say -v '?' | grep ko_KR)
+  mute_tail_seconds: 0.3     # 말을 끝낸 뒤에도 이 시간 동안 마이크 입력 무시 (스피커 잔향)
+
+vad:
+  aggressiveness: 2          # 0~3. 높을수록 말소리로 보는 기준이 엄격 (잡음에 덜 반응)
+  start_frames: 3            # 30ms 단위 말소리가 이만큼 연속되면 말 시작
+  pre_roll_ms: 300           # 말 시작 직전 소리도 포함 (첫 음절 잘림 방지)
+  end_silence_ms: 800        # 이만큼 조용하면 말 끝
+  min_speech_ms: 250         # 이보다 짧은 말소리는 버림 (기침, 딸깍 소리)
+  max_segment_seconds: 10    # 말이 이보다 길면 끊어서 처리
+
+stt:
+  model: small               # faster-whisper 모델 (tiny / base / small / medium / large-v3-turbo)
+  compute_type: int8
+  beam_size: 5
+  vad_filter: true           # Whisper 내장 VAD로 한 번 더 걸러 무음 환각 방지
+  pad_seconds: 0.3           # 인식 전에 앞뒤로 붙이는 무음. 짧은 대답("응") 인식이 안정됨
+  hallucinations:            # Whisper가 무음·잡음에서 자주 지어내는 문장 → 인식 결과 없음으로 처리 (공백·문장부호 무시)
+    - 시청해주셔서감사합니다
+    - 구독과좋아요
+    - 다음영상에서만나요
+    - mbc뉴스
+    - 자막제공
+
+wakeword:
+  # 인식 텍스트에서 찾을 "하이 엘지" 변형 (공백·문장부호 무시, 영문은 소문자로 비교)
+  # 2026-11-06 실측: TTS 음성 → "high lg", "Hi LG", "하이예지" / 사용자 목소리 → "하이 LG", "하이 연기"
+  phrases:
+    - 하이엘지
+    - 하이lg
+    - highlg
+    - hilg
+    - 하이예지
+    - 하이연기
+  follow_up_seconds: 5       # "하이 엘지"만 말했을 때, 이 시간 안에 시작한 다음 발화를 명령으로 받음

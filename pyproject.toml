@@ -19,6 +19,12 @@ vision = [
     "insightface>=2.1",
     "onnxruntime>=1.31",
 ]
+# 마이크·음성 인식
+audio = [
+    "sounddevice>=0.5",
+    "webrtcvad-wheels>=2.0",
+    "faster-whisper>=1.2",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -30,3 +36,6 @@ include = ["schema*", "publisher*", "vision*", "audio*", "radar*", "fusion*", "r
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# 실제 모델을 쓰는 느린 테스트는 기본으로 건너뜀: pytest -m slow 로 실행
+addopts = "-m 'not slow'"
+markers = ["slow: 실제 모델을 불러오는 느린 테스트"]
