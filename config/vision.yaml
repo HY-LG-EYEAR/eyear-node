@@ -1,0 +1,39 @@
+# 카메라 처리 설정. 값은 임시이며 실제 방에서 측정한 뒤 조정한다 (단계 8).
+
+camera:
+  source: 0            # 카메라 번호 또는 동영상 파일 경로
+  width: 1280
+  height: 720
+
+light:
+  # 화면 평균 밝기(흑백 0~255) 기준. 노트북 카메라는 자동 노출로 어두운 방도 밝게 보정하므로 실측 필수
+  dark_below: 40
+  bright_above: 100
+
+face:
+  model: buffalo_l           # insightface 사전 학습 모델 (~/.insightface에 자동 다운로드)
+  det_size: 640
+  min_det_score: 0.6         # 이보다 낮으면 얼굴로 보지 않음
+  min_face_px: 40            # 얼굴 높이가 이보다 작으면 판단하지 않음 (UNKNOWN)
+  match_threshold: 0.40      # 등록된 얼굴과의 코사인 유사도가 이 이상이면 같은 사람 후보
+  ambiguous_margin: 0.05     # 1등과 2등 가족의 유사도 차이가 이보다 작으면 UNKNOWN
+  vote_window: 10            # 최근 얼굴 판단 몇 번으로 신원을 정할지
+  vote_min: 3                # 최소 이만큼은 판단해야 신원 확정
+  vote_ratio: 0.6            # 최근 판단 중 이 비율 이상이 같은 사람이어야 확정
+
+pose:
+  model_path: data/models/pose_landmarker_full.task
+  num_poses: 2
+  min_visibility: 0.5        # 관절이 이 이상 보여야 사용
+  lying_torso_deg: 60        # 몸통이 수직에서 이 각도 이상 기울면 LYING
+  upright_torso_deg: 35      # 이 각도 이하면 서 있거나 앉아 있음 (사이는 UNKNOWN)
+  standing_knee_deg: 150     # 무릎 각도가 이 이상이면 STANDING
+  sitting_knee_deg: 120      # 이 이하면 SITTING
+  standing_thigh_deg: 30     # 발목이 안 보일 때: 허벅지가 수직에서 이 이내면 STANDING
+  sitting_thigh_deg: 55      # 이 이상이면 SITTING
+  walking_speed: 0.8         # 몸 중심의 가로 이동 속도 (몸통 길이/초) 이상이면 WALKING
+  hold_seconds: 0.5          # 새 자세가 이 시간 이상 유지돼야 바꿈
+
+tracking:
+  iou_match: 0.3             # 이전 프레임 사람과 겹치는 정도가 이 이상이면 같은 사람
+  lost_seconds: 1.0          # 이 시간 동안 안 보이면 사람 목록에서 뺌

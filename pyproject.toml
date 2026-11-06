@@ -11,6 +11,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "jsonschema>=4"]
+# 카메라 처리. mediapipe 1.x는 예전 mp.solutions가 없고 Tasks API만 있음
+vision = [
+    "numpy>=2",
+    "opencv-python>=5.0",
+    "mediapipe>=1.2",
+    "insightface>=2.1",
+    "onnxruntime>=1.31",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
