@@ -253,10 +253,8 @@ t7  A가 거실 소파 B 옆에 앉음 → 거실 Node가 A 식별
 - 스키마를 바꾸면 schema_version을 올리고 팀원2에게 알린다.
 
 ## 8. 팀 공유 (eyear-team inbox, 2026-11-06)
-- 다른 팀원에게 알릴 내용은 `../eyear-team/inbox/<받는 사람 id>.md`에 쓴다. 규칙은 아래 RULES.md를 따른다.
-- 내 inbox는 `../eyear-team/inbox/banseok.md`. 세션 시작 때 항목이 있으면 작업 전에 먼저 알린다.
+- 다른 팀원에게 알릴 내용은 `../eyear-team/inbox/<받는 사람 id>.md`에 쓴다.
+- 세션 시작 훅(`.claude/settings.local.json`)이 eyear-team을 pull 하고 RULES.md와 내 inbox(`inbox/banseok.md`)를 출력해 준다.
+  규칙은 RULES.md를 따르고, inbox에 항목이 있으면 작업 전에 먼저 알린다.
+  (`@../` import는 작업 폴더 밖이라 불러와지지 않아서 훅 출력으로 대신한다.)
 - 커밋·푸시는 사용자가 직접 한다. 메시지를 쓴 뒤에는 eyear-team 커밋 시점과 메시지 예시만 알린다.
-- 세션 시작 때 eyear-team을 자동으로 pull 한다 (`.claude/settings.local.json`의 SessionStart 훅).
-
-@../eyear-team/RULES.md
-@../eyear-team/inbox/banseok.md
