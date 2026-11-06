@@ -251,3 +251,12 @@ t7  A가 거실 소파 B 옆에 앉음 → 거실 Node가 A 식별
 - 센서가 없거나 실패하면 UNKNOWN/낮은 신뢰도로 명시. 가짜 값을 채우지 않는다.
 - 원본 영상·음성은 저장하거나 전송하지 않는다 (녹화는 동의된 평가 용도로만, 분리 보관).
 - 스키마를 바꾸면 schema_version을 올리고 팀원2에게 알린다.
+
+## 8. 팀 공유 (eyear-team inbox, 2026-11-06)
+- 다른 팀원에게 알릴 내용은 `../eyear-team/inbox/<받는 사람 id>.md`에 쓴다. 규칙은 아래 RULES.md를 따른다.
+- 내 inbox는 `../eyear-team/inbox/banseok.md`. 세션 시작 때 항목이 있으면 작업 전에 먼저 알린다.
+- 커밋·푸시는 사용자가 직접 한다. 메시지를 쓴 뒤에는 eyear-team 커밋 시점과 메시지 예시만 알린다.
+- 세션 시작 때 eyear-team을 자동으로 pull 한다 (`.claude/settings.local.json`의 SessionStart 훅).
+
+@../eyear-team/RULES.md
+@../eyear-team/inbox/banseok.md

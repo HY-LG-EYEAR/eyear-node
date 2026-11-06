@@ -10,3 +10,5 @@ out/
 # 얼굴 임베딩 등 개인 데이터
 data/
 .DS_Store
+# Claude Code 개인 설정 (절대 경로 포함)
+.claude/settings.local.json
