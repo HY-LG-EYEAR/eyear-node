@@ -1,0 +1,7 @@
+# 등록된 가족 목록 (영문 대문자, 숫자, 밑줄만). UNKNOWN, GUEST는 예약어라 쓸 수 없음.
+# 실제 이름으로 바꿀 때는 팀원2·팀원3에게도 알릴 것.
+members:
+  - MEMBER_A
+  - MEMBER_B
+  - MEMBER_C
+  - MEMBER_D

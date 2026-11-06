@@ -1,0 +1,17 @@
+[project]
+name = "eyear-node"
+version = "0.1.0"
+description = "EYEAR Node: 방 단위 센서 장치 소프트웨어"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "paho-mqtt>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "jsonschema>=4"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.nosync
+# 실행 결과물
+out/
+*.jsonl
+# 얼굴 임베딩 등 개인 데이터
+data/
+.DS_Store
