@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from fusion.camera_only import snapshot_from_camera
+from fusion.room_state import build_snapshot
 from schema.enums import Light, Posture
 from schema.family import load_family
 from vision.config import VisionConfig, load_vision_config
@@ -144,15 +144,15 @@ def test_tracker_drops_lost_person():
 def test_camera_only_snapshot_does_not_invent_values():
     tracker = CameraTracker(CFG.face, CFG.pose, CFG.tracking)
     persons = tracker.update([], [STANDING], 0.0)
-    snap = snapshot_from_camera(persons, Light.BRIGHT, FAMILY)
+    snap = build_snapshot(persons, Light.BRIGHT, None, FAMILY)
     p = snap.persons[0]
     assert snap.occupancy.state == "OCCUPIED"
     assert (p.identity, p.identity_source) == ("UNKNOWN", "UNKNOWN")
     assert (p.motion, p.activity, p.position) == ("UNKNOWN", "UNKNOWN", None)
     assert snap.audio.context == "UNKNOWN"
-    empty = snapshot_from_camera([], Light.BRIGHT, FAMILY)
+    empty = build_snapshot([], Light.BRIGHT, None, FAMILY)
     assert (empty.occupancy.state, empty.occupancy.confidence) == ("EMPTY", 0.5)
-    broken = snapshot_from_camera(None, Light.UNKNOWN, FAMILY)
+    broken = build_snapshot(None, Light.UNKNOWN, None, FAMILY)
     assert (broken.occupancy.state, broken.light) == ("UNKNOWN", "UNKNOWN")
 
 

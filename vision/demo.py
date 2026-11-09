@@ -6,6 +6,7 @@
     python -m vision.demo --source video.mp4  # 카메라 대신 동영상 파일
 
 창에서 q 또는 ESC로 종료. 프레임은 저장하지 않는다.
+카메라만 따로 확인하는 용도. 카메라·마이크·음성 대화를 합친 실제 Node는 main.py.
 """
 
 import argparse
@@ -13,18 +14,16 @@ import time
 
 import cv2
 
-from fusion.camera_only import snapshot_from_camera
 from fusion.events import EventBuilder
+from fusion.room_state import build_snapshot
 from publisher import topics
 from publisher.sinks import JsonlSink, MqttSink, MultiSink, Sink, StdoutSink
-from schema.enums import IDENTITY_UNKNOWN
+from schema.enums import IDENTITY_UNKNOWN, Light
 from schema.family import load_family
 from vision.camera import Camera
 from vision.config import load_vision_config
-from vision.face_id import FaceGallery, FaceIdentifier
-from vision.light import classify_light
-from vision.pose import PoseEstimator
-from vision.tracker import CameraTracker, VisionPerson
+from vision.pipeline import VisionPipeline
+from vision.tracker import VisionPerson
 
 # 화면에 그릴 뼈대 (MediaPipe 관절 번호)
 SKELETON = [(11, 12), (11, 13), (13, 15), (12, 14), (14, 16), (11, 23), (12, 24), (23, 24),
@@ -70,11 +69,6 @@ def main() -> None:
     if args.source is not None:
         config.camera.source = args.source
     family = load_family()
-    gallery = FaceGallery.load(family)
-    if not gallery.embeddings:
-        print("등록된 얼굴이 없음 → 모든 사람이 UNKNOWN으로 나옴. 등록: python -m vision.enroll --name MEMBER_A")
-    else:
-        print("등록된 얼굴:", ", ".join(f"{n}({len(e)}장)" for n, e in gallery.embeddings.items()))
 
     sinks: list[Sink] = [StdoutSink(args.stdout)] if args.stdout != "off" else []
     if args.jsonl:
@@ -85,10 +79,7 @@ def main() -> None:
     sink = MultiSink(sinks)
     builder = EventBuilder(f"node_{args.room}", args.room, family, args.heartbeat)
 
-    print("모델 불러오는 중...")
-    faces_model = FaceIdentifier(gallery, config.face)
-    pose_model = PoseEstimator(config.pose)
-    tracker = CameraTracker(config.face, config.pose, config.tracking)
+    pipeline = VisionPipeline(family, config)
     camera = Camera(config.camera)
     print("시작 (창에서 q 또는 ESC로 종료)")
 
@@ -101,18 +92,17 @@ def main() -> None:
                 if camera.is_file:
                     break
                 # 카메라를 읽을 수 없음 → 지어내지 않고 UNKNOWN
-                message = builder.update(snapshot_from_camera(None, classify_light(None, config.light)[0], family))
+                message = builder.update(build_snapshot(None, Light.UNKNOWN, None, family))
                 if message:
                     sink.publish(topics.state(args.room), message)
                 time.sleep(0.1)
                 continue
 
-            light, lum = classify_light(frame, config.light)
-            faces = faces_model.identify(frame)
-            poses = pose_model.detect(frame, now)
-            persons = tracker.update(faces, poses, now)
+            result = pipeline.process(frame, now)
+            persons, light, lum = result.persons, result.light, result.lum
 
-            message = builder.update(snapshot_from_camera(persons, light, family))
+            # 카메라 단독 데모: 소리는 UNKNOWN (마이크까지 합친 실행은 main.py)
+            message = builder.update(build_snapshot(persons, light, None, family))
             if message:
                 sink.publish(topics.state(args.room), message)
 
@@ -128,7 +118,7 @@ def main() -> None:
         pass
     finally:
         camera.close()
-        pose_model.close()
+        pipeline.close()
         sink.close()
         cv2.destroyAllWindows()
 

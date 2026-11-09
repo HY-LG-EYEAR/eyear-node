@@ -19,8 +19,10 @@ vision = [
     "insightface>=2.1",
     "onnxruntime>=1.31",
 ]
-# 마이크·음성 인식
+# 마이크·소리 분류·음성 인식
 audio = [
+    "numpy>=2",
+    "mediapipe>=1.2",          # 소리 분류 (YAMNet)
     "sounddevice>=0.5",
     "webrtcvad-wheels>=2.0",
     "faster-whisper>=1.2",

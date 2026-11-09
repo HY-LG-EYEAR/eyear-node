@@ -94,6 +94,10 @@ Node ──("하이 엘지" 뒤 발화 텍스트)────────▶ eye
 - **`occupancy: OCCUPIED` + `persons: []`**: 가만히 누운 사람을 위치 레이더가 놓쳤지만, 재실 레이더는 사람이 있다고 판단한 상태입니다. "사람 있음"으로 처리해 주세요.
 - **`UNKNOWN`**: 센서가 없거나 판단할 수 없다는 뜻입니다. 빈 방이나 특정 값으로 추측하지 말아 주세요. 예: `occupancy.state: UNKNOWN`은 "빈 방"이 아닙니다.
 - 어두울 때는 신원이 `TRACK_CARRIED`가 되고 신뢰도가 낮아집니다. 불이 켜지면 다시 `FACE`로 돌아옵니다.
+- **`audio.context`**: 1초마다 소리 종류를 판단하고 최근 3초의 다수결을 보냅니다.
+  - 사전 학습 모델(YAMNet)은 말하는 사람 수를 세지 못해서, 대화도 대부분 `SPEECH`로 나옵니다. TV 소리도 `SPEECH`나 `MUSIC`으로 나오기 쉽습니다.
+  - 키보드 소리처럼 어느 종류에도 해당하지 않으면 `UNKNOWN`입니다.
+  - Node가 스피커로 말하는 동안에는 자기 목소리를 분류하지 않고 직전 값을 유지합니다.
 
 ### JSON Schema로는 표현되지 않는 규칙 (보내는 쪽이 지킴)
 
@@ -188,7 +192,22 @@ mosquitto_sub -t 'eyear/#' -v
 - 중앙 없이 질문을 흉내 내 보려면:
   `mosquitto_pub -t eyear/v0/room1/speak -f schema/examples/speak_command_question.json`
 
-## 5. 합의가 필요한 것
+## 5. 실제 Node 실행 (신반석 노트북, 방1)
+
+카메라·마이크·스피커가 있는 노트북에서 실제 센서로 같은 형식의 메시지를 보냅니다.
+
+```bash
+~/.venvs/eyear-node/bin/pip install -e ".[dev,vision,audio]"   # 처음 한 번
+PY=~/.venvs/eyear-node/bin/python
+$PY main.py --mqtt localhost               # 카메라 창 + 마이크 + 음성 대화 (room1)
+$PY main.py --mqtt localhost --no-camera   # 마이크만 (재실·신원·밝기 = UNKNOWN)
+$PY main.py --mqtt localhost --no-audio    # 카메라만 (소리 = UNKNOWN, 음성 대화 없음)
+```
+
+- 모델 파일은 `data/models/`에 따로 받아야 합니다 (`pose_landmarker_full.task`, `yamnet.tflite`, 없으면 받는 명령을 알려 줌).
+- 센서를 끄거나, 센서 결과가 3초 넘게 오지 않으면 그 값은 `UNKNOWN`으로 나갑니다.
+
+## 6. 합의가 필요한 것
 
 | 항목 | 현재 초안 | 상대 |
 |---|---|---|

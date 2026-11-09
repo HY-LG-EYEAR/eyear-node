@@ -39,3 +39,21 @@ wakeword:
     - 하이예지
     - 하이연기
   follow_up_seconds: 5       # "하이 엘지"만 말했을 때, 이 시간 안에 시작한 다음 발화를 명령으로 받음
+
+classifier:
+  # 소리 환경 분류 (YAMNet, 사전 학습 521종) → audio.context. 1초마다 판단, 최근 vote_windows개 중 다수결
+  model_path: data/models/yamnet.tflite
+  window_seconds: 1.0
+  vote_windows: 3
+  min_score: 0.2             # 대표 라벨 점수가 이보다 낮으면 그 종류로 보지 않음
+  silent_below_dbfs: -55     # 소리 크기가 이보다 작으면 SILENT (실측 후 조정: python -m audio.classifier)
+  loud_above_dbfs: -20       # 이보다 큰데 말·음악·TV가 아니면 LOUD_NOISE
+  level_confidence: 0.8      # 소리 크기만으로 정한 값(SILENT, LOUD_NOISE)의 신뢰도
+  # 우리 값 ← YAMNet 라벨 (이름이 정확해야 함. 틀리면 실행 시 오류). LOUD_NOISE·UNKNOWN은 규칙으로 정함
+  labels:
+    SPEECH: [Speech, "Child speech, kid speaking", "Narration, monologue", Whispering]
+    CONVERSATION: [Conversation, Chatter, "Hubbub, speech noise, speech babble"]
+    MUSIC: [Music, Musical instrument, Singing, Song, Vocal music, Background music, Pop music,
+            Piano, Guitar, Drum, Orchestra]
+    TV: [Television]
+    SILENT: [Silence]

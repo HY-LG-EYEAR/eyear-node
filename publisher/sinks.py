@@ -2,6 +2,7 @@
 
 import json
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol
@@ -128,12 +129,16 @@ class MqttSink:
 
 
 class MultiSink:
+    """여러 스레드(카메라 루프, 음성 대화)에서 동시에 불러도 메시지가 섞이지 않게 잠근다."""
+
     def __init__(self, sinks: list[Sink]):
         self.sinks = sinks
+        self._lock = threading.Lock()
 
     def publish(self, topic: str, message: BaseModel) -> None:
-        for sink in self.sinks:
-            sink.publish(topic, message)
+        with self._lock:
+            for sink in self.sinks:
+                sink.publish(topic, message)
 
     def close(self) -> None:
         for sink in self.sinks:

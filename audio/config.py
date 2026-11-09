@@ -46,6 +46,42 @@ class WakeWordConfig:
     follow_up_seconds: float = 5
 
 
+def _default_labels() -> dict[str, list[str]]:
+    return {
+        "SPEECH": ["Speech", "Child speech, kid speaking", "Narration, monologue", "Whispering"],
+        "CONVERSATION": ["Conversation", "Chatter", "Hubbub, speech noise, speech babble"],
+        "MUSIC": ["Music", "Musical instrument", "Singing", "Song"],
+        "TV": ["Television"],
+        "SILENT": ["Silence"],
+    }
+
+
+# 라벨로 정할 수 있는 값. LOUD_NOISE(소리 크기)와 UNKNOWN(판단 불가)은 규칙으로 정한다
+LABEL_CONTEXTS = {"SPEECH", "CONVERSATION", "MUSIC", "TV", "SILENT"}
+
+
+@dataclass
+class ClassifierConfig:
+    model_path: str = "data/models/yamnet.tflite"
+    window_seconds: float = 1.0
+    vote_windows: int = 3
+    min_score: float = 0.2
+    silent_below_dbfs: float = -55
+    loud_above_dbfs: float = -20
+    level_confidence: float = 0.8
+    labels: dict[str, list[str]] = field(default_factory=_default_labels)
+
+    def __post_init__(self):
+        unknown = self.labels.keys() - LABEL_CONTEXTS
+        if unknown:
+            raise ValueError(f"classifier.labels: 라벨로 정할 수 없는 값 {sorted(unknown)} (가능: {sorted(LABEL_CONTEXTS)})")
+
+    @property
+    def model_file(self) -> Path:
+        path = Path(self.model_path)
+        return path if path.is_absolute() else ROOT / path
+
+
 @dataclass
 class AudioConfig:
     mic: MicConfig
@@ -53,10 +89,11 @@ class AudioConfig:
     vad: VadConfig
     stt: SttConfig
     wakeword: WakeWordConfig
+    classifier: ClassifierConfig = field(default_factory=ClassifierConfig)
 
     @classmethod
     def default(cls) -> "AudioConfig":
-        return cls(MicConfig(), TtsConfig(), VadConfig(), SttConfig(), WakeWordConfig())
+        return cls(MicConfig(), TtsConfig(), VadConfig(), SttConfig(), WakeWordConfig(), ClassifierConfig())
 
 
 def _build(section_cls, values: dict | None):
@@ -75,4 +112,5 @@ def load_audio_config(path: Path | str = DEFAULT_AUDIO_CONFIG) -> AudioConfig:
         vad=_build(VadConfig, data.get("vad")),
         stt=_build(SttConfig, data.get("stt")),
         wakeword=_build(WakeWordConfig, data.get("wakeword")),
+        classifier=_build(ClassifierConfig, data.get("classifier")),
     )
