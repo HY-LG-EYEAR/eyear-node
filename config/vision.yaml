@@ -2,8 +2,8 @@
 
 camera:
   source: 0            # 카메라 번호 또는 동영상 파일 경로
-  width: 1280
-  height: 720
+  width: 1552           # MacBook Pro(M5) 카메라: 정사각형 모드가 세로로 가장 넓음 (가로 화각은 모든 모드 동일, 2026-11-09 측정)
+  height: 1552
 
 light:
   # 화면 평균 밝기(흑백 0~255) 기준. 노트북 카메라는 자동 노출로 어두운 방도 밝게 보정하므로 실측 필수
@@ -25,7 +25,9 @@ pose:
   model_path: data/models/pose_landmarker_full.task
   num_poses: 2
   min_visibility: 0.5        # 관절이 이 이상 보여야 사용
-  lying_torso_deg: 60        # 몸통이 수직에서 이 각도 이상 기울면 LYING
+  lying_torso_deg: 45        # 몸통이 화면에서 수직으로부터 이 각도 이상 기울면 LYING
+                             # (2026-11-10 실측, 카메라를 높이 두고 대각선으로 내려다봄: 누움 55~65°, 서기 10~20°, 앉기 10~30°.
+                             #  위에서 내려다보면 누운 몸도 화면에서 덜 기울어 보이므로 설치 위치가 바뀌면 다시 측정)
   upright_torso_deg: 35      # 이 각도 이하면 서 있거나 앉아 있음 (사이는 UNKNOWN)
   standing_knee_deg: 150     # 무릎 각도가 이 이상이면 STANDING
   sitting_knee_deg: 120      # 이 이하면 SITTING
@@ -37,3 +39,54 @@ pose:
 tracking:
   iou_match: 0.3             # 이전 프레임 사람과 겹치는 정도가 이 이상이면 같은 사람
   lost_seconds: 1.0          # 이 시간 동안 안 보이면 사람 목록에서 뺌
+  max_jump: 1.0              # 겹침으로 못 찾을 때: 직전 사람 상자 크기(긴 변)의 이 배 안으로 움직였으면 같은 사람 (빠르게 걷는 경우)
+  duplicate_overlap: 0.6     # 한 화면에서 두 몸 상자가 작은 쪽의 이 비율 이상 겹치면 한 사람 (이불 등으로 몸이 둘로 잡히는 경우)
+  confirm_seconds: 0.5       # 새로 나타난 사람은 이 시간 이상 계속 보여야 사람 목록에 넣음 (순간적인 오검출 무시)
+  face_body_margin: 0.5      # 얼굴이 몸 상자를 이 비율만큼 넓힌 범위 안에 있으면 그 몸의 얼굴 (누우면 머리가 몸 상자 밖에 놓임)
+
+resting:
+  # 휴식(RESTING) 판단: 자세가 LYING이고 MobileCLIP(이미지–문장 매칭, 제로샷)도 "쉬는 중"이라고 볼 때만.
+  # 잠과 휴식은 구분하지 않는다. 문장은 영어 (CLIP은 영어로 학습됨). 문장 확인: python -m vision.activity --image 사진.jpg
+  enabled: true
+  model: MobileCLIP2-S2      # open_clip 모델 이름 (첫 실행 시 가중치 자동 다운로드)
+  pretrained: dfndr2b
+  device: auto               # auto = 맥 GPU(mps)가 있으면 mps, 없으면 cpu
+  resting_prompts:           # "쉬는 중" 문장들 → 이 문장들의 확률 합이 rest p
+    - a photo of a person lying in bed
+    - a photo of a person resting on a bed under a blanket
+    - a photo of a person sleeping in bed
+  other_prompts:             # "쉬는 중이 아님" 문장들
+    - a photo of a person standing in a room
+    - a photo of a person sitting on a chair
+    - a photo of a person sitting on a bed
+    - a photo of a person walking
+    - a photo of an empty bed
+  threshold: 0.5             # 최근 rest p 평균이 이 이상이어야 CLIP이 "쉬는 중"에 동의한 것으로 봄
+                             # (2026-11-10 실측: 누움 0.45~0.76, 일어나 앉음 약 0.01, 빈 의자 약 0.2)
+  average_count: 3           # rest p를 최근 몇 번의 평균으로 볼지 (한 장씩 흔들리는 것 완화)
+  interval_seconds: 1.0      # 누운 사람에 대해 CLIP을 실행하는 간격
+  hold_seconds: 5            # LYING + CLIP 동의가 이 시간 이상 이어져야 RESTING (한 장 오판으로 질문이 나가는 것 방지)
+  exit_seconds: 2            # RESTING 중 일어난 자세(STANDING/SITTING/WALKING)가 이 시간 이상 이어져야 OTHER (뒤척임 무시)
+  crop_margin: 0.3           # 사람 상자를 이만큼 넓혀 잘라 CLIP에 넣음 (침대가 같이 보이게)
+
+person_check:
+  # 가짜 사람 거르기: 얼굴이 한 번도 안 잡힌 사람은 CLIP에게 "사람인가, 가구·물건인가"를 물어 사람일 때만 목록에 넣음
+  # (2026-11-10 실측: 자세 모델이 빈 의자를 사람으로 잡음). 얼굴이 잡힌 사람은 묻지 않음. CLIP 모델은 resting과 같이 씀
+  enabled: true
+  person_prompts:
+    - a photo of a person
+    - a photo of a person lying in bed
+    - a photo of a person sitting on a chair
+    - a photo of a person standing in a room
+  object_prompts:            # 사람으로 잘못 잡힐 만한 것들 (방에 맞게 추가)
+    - a photo of an empty chair
+    - a photo of clothes on a chair
+    - a photo of an empty bed
+    - a photo of a pile of blankets
+    - a photo of furniture in a room
+    - a photo of an empty room
+  threshold: 0.5             # 최근 "사람" 확률 평균이 이 이상이어야 사람으로 인정
+  average_count: 3
+  min_checks: 2              # 최소 이만큼 확인한 뒤 판단 (등 돌린 사람은 1~2초 늦게 나타남)
+  interval_seconds: 1.0
+  crop_margin: 0.2

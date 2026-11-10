@@ -94,6 +94,12 @@ Node ──("하이 엘지" 뒤 발화 텍스트)────────▶ eye
 - **`occupancy: OCCUPIED` + `persons: []`**: 가만히 누운 사람을 위치 레이더가 놓쳤지만, 재실 레이더는 사람이 있다고 판단한 상태입니다. "사람 있음"으로 처리해 주세요.
 - **`UNKNOWN`**: 센서가 없거나 판단할 수 없다는 뜻입니다. 빈 방이나 특정 값으로 추측하지 말아 주세요. 예: `occupancy.state: UNKNOWN`은 "빈 방"이 아닙니다.
 - 어두울 때는 신원이 `TRACK_CARRIED`가 되고 신뢰도가 낮아집니다. 불이 켜지면 다시 `FACE`로 돌아옵니다.
+- **`activity: RESTING`**: 카메라 기준으로 누운 자세(`LYING`)이고, 이미지–문장 매칭 모델(MobileCLIP)도 "침대에서 쉬는 중"이라고 판단하는 상태가 **5초 이상** 이어질 때 보냅니다.
+  - 잠과 휴식은 구분하지 않습니다. 수면 여부는 중앙이 음성으로 물어봐 주세요.
+  - 일어난 자세가 **2초 이상** 이어질 때만 `OTHER`로 바뀝니다. 뒤척임이나 이불 때문에 잠깐 자세를 놓쳐도 `RESTING`이 깜빡이지 않습니다.
+    따라서 `ACTIVITY_CHANGED`로 `RESTING`이 새로 들어오는 것은 "새로운 휴식 1회"로 봐도 됩니다.
+  - 서 있음·앉음·걷기는 `OTHER`입니다. 누워 있지만 두 판단이 엇갈리면 `UNKNOWN`입니다.
+  - 불이 꺼진 뒤 휴식 상태를 이어 가는 것은 레이더가 붙은 뒤(M5·M6)에 합니다.
 - **`audio.context`**: 1초마다 소리 종류를 판단하고 최근 3초의 다수결을 보냅니다.
   - 사전 학습 모델(YAMNet)은 말하는 사람 수를 세지 못해서, 대화도 대부분 `SPEECH`로 나옵니다. TV 소리도 `SPEECH`나 `MUSIC`으로 나오기 쉽습니다.
   - 키보드 소리처럼 어느 종류에도 해당하지 않으면 `UNKNOWN`입니다.
@@ -197,11 +203,12 @@ mosquitto_sub -t 'eyear/#' -v
 카메라·마이크·스피커가 있는 노트북에서 실제 센서로 같은 형식의 메시지를 보냅니다.
 
 ```bash
-~/.venvs/eyear-node/bin/pip install -e ".[dev,vision,audio]"   # 처음 한 번
+~/.venvs/eyear-node/bin/pip install -e ".[dev,vision,audio,resting]"   # 처음 한 번
 PY=~/.venvs/eyear-node/bin/python
 $PY main.py --mqtt localhost               # 카메라 창 + 마이크 + 음성 대화 (room1)
 $PY main.py --mqtt localhost --no-camera   # 마이크만 (재실·신원·밝기 = UNKNOWN)
 $PY main.py --mqtt localhost --no-audio    # 카메라만 (소리 = UNKNOWN, 음성 대화 없음)
+$PY main.py --mqtt localhost --no-resting  # 휴식 판단(MobileCLIP) 끔 → 누움은 activity UNKNOWN
 ```
 
 - 모델 파일은 `data/models/`에 따로 받아야 합니다 (`pose_landmarker_full.task`, `yamnet.tflite`, 없으면 받는 명령을 알려 줌).

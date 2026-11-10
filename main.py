@@ -6,7 +6,7 @@
     python main.py --mqtt localhost --no-audio      # 카메라만 (소리 = UNKNOWN, 음성 대화 없음)
 
 스레드 구성:
-    메인 스레드   카메라 → 신원·자세·밝기 → RoomState → EventBuilder → 방 상태 메시지 (창은 메인 스레드에서만 그릴 수 있음)
+    메인 스레드   카메라 → 신원·자세·활동(RESTING)·밝기 → RoomState → EventBuilder → 방 상태 메시지 (창은 메인 스레드에서만 그릴 수 있음)
     소리 분류     마이크 → 1초마다 audio.context → RoomState
     음성 대화     마이크 → "하이 엘지" / 질문 대답 → voice/command, voice/reply
                  중앙의 speak 수신 → 스피커 (말하는 동안 마이크를 꺼서 소리 분류도 자기 목소리를 듣지 않음)
@@ -50,6 +50,7 @@ def main() -> None:
     parser.add_argument("--no-camera", action="store_true")
     parser.add_argument("--no-audio", action="store_true", help="마이크·스피커를 쓰지 않음 (소리 분류, 음성 대화 모두 끔)")
     parser.add_argument("--no-window", action="store_true")
+    parser.add_argument("--no-resting", action="store_true", help="휴식 판단(MobileCLIP) 끔 → 누움은 activity UNKNOWN")
     parser.add_argument("--source", default=None, help="카메라 번호 또는 동영상 파일 (기본: config/vision.yaml)")
     args = parser.parse_args()
 
@@ -124,7 +125,7 @@ def run_camera(args, family, room: RoomState, publish_state, stop: threading.Eve
     config = load_vision_config()
     if args.source is not None:
         config.camera.source = args.source
-    pipeline = VisionPipeline(family, config)
+    pipeline = VisionPipeline(family, config, resting=not args.no_resting)
     camera = Camera(config.camera)
     closers += [pipeline.close, camera.close]
     if not args.no_window:

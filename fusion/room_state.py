@@ -8,7 +8,7 @@ RoomState가 마지막 결과와 받은 시각을 들고 있다가, snapshot()�
   - 카메라: 재실 UNKNOWN, 사람 목록 비움, 밝기 UNKNOWN
   - 마이크: audio UNKNOWN
 - 위치(position): null, 움직임(motion): UNKNOWN (레이더 담당, M5)
-- 활동(activity): UNKNOWN (RESTING 판단은 M4)
+- 활동(activity): 카메라 판단 (vision/activity.py: 자세 LYING + CLIP 동의가 몇 초 유지되면 RESTING)
 - 카메라에 아무도 안 보이면 EMPTY지만 신뢰도 0.5 (카메라 밖에 사람이 있을 수 있음, 2026-11-06 결정)
 """
 
@@ -53,8 +53,8 @@ def build_snapshot(
                     "posture": p.posture,
                     "posture_confidence": p.posture_confidence,
                     "motion": "UNKNOWN",
-                    "activity": "UNKNOWN",
-                    "activity_confidence": 0.0,
+                    "activity": p.activity,
+                    "activity_confidence": p.activity_confidence,
                     "position": None,
                 }
                 for p in persons

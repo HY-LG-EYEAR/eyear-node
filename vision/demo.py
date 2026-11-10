@@ -36,6 +36,11 @@ def _text(img, text, org, color=WHITE, scale=0.6):
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
 
 
+def _v(value) -> str:
+    """enum이면 값만 ("Posture.LYING" → "LYING")."""
+    return getattr(value, "value", value)
+
+
 def draw(frame, persons: list[VisionPerson], header: str, min_vis: float) -> None:
     for p in persons:
         known = p.identity != IDENTITY_UNKNOWN
@@ -50,7 +55,12 @@ def draw(frame, persons: list[VisionPerson], header: str, min_vis: float) -> Non
         x1, y1 = int(p.bbox[0]), max(int(p.bbox[1]) - 30, 20)
         _text(frame, f"#{p.track_id} {p.identity} {p.identity_confidence:.2f}", (x1, y1), color)
         sim = f"  sim {p.face.similarity:.2f}" if p.face is not None and p.face.measured else ""
-        _text(frame, f"{p.posture} {p.posture_confidence:.2f}{sim}", (x1, y1 + 20), color, 0.5)
+        _text(frame, f"{_v(p.posture)} {p.posture_confidence:.2f}{sim}", (x1, y1 + 20), color, 0.5)
+        rest = "" if p.rest_probability is None else f"  rest p {p.rest_probability:.2f}"
+        held = "" if p.rest_agree_seconds is None or p.activity == "RESTING" else f" ({p.rest_agree_seconds:.1f}s)"
+        _text(frame, f"{_v(p.activity)} {p.activity_confidence:.2f}{rest}{held}", (x1, y1 + 40), color, 0.5)
+        if p.person_probability is not None:  # 얼굴이 안 잡힌 사람: CLIP "사람" 확률 (빈 의자 등 거르기)
+            _text(frame, f"person p {p.person_probability:.2f}", (x1, y1 + 60), color, 0.5)
     _text(frame, header, (10, 25))
 
 
@@ -63,6 +73,7 @@ def main() -> None:
     parser.add_argument("--stdout", choices=["summary", "all", "full", "off"], default="summary")
     parser.add_argument("--heartbeat", type=float, default=1.0)
     parser.add_argument("--no-window", action="store_true")
+    parser.add_argument("--no-resting", action="store_true", help="휴식 판단(MobileCLIP) 끔")
     args = parser.parse_args()
 
     config = load_vision_config()
@@ -79,7 +90,7 @@ def main() -> None:
     sink = MultiSink(sinks)
     builder = EventBuilder(f"node_{args.room}", args.room, family, args.heartbeat)
 
-    pipeline = VisionPipeline(family, config)
+    pipeline = VisionPipeline(family, config, resting=not args.no_resting)
     camera = Camera(config.camera)
     print("시작 (창에서 q 또는 ESC로 종료)")
 

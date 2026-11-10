@@ -28,6 +28,12 @@ audio = [
     "faster-whisper>=1.2",
 ]
 
+# 휴식(RESTING) 판단용 MobileCLIP. 무거워서 따로 둠 (실제 Node에만 필요, 팀원은 설치 불필요)
+resting = [
+    "torch>=2.5",
+    "open_clip_torch>=3.0",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

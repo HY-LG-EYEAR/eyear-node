@@ -1,5 +1,7 @@
 """카메라·모델 없이 확인하는 vision 규칙 테스트."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -16,6 +18,7 @@ from vision.pose import (
 from vision.tracker import CameraTracker
 
 CFG = VisionConfig.default()
+TRK = replace(CFG.tracking, confirm_seconds=0)  # 기존 테스트용: 새 사람을 바로 목록에 넣음
 FAMILY = load_family()
 
 
@@ -104,7 +107,7 @@ def _face_on(pose: PoseResult, identity: str, confidence: float = 0.8) -> FaceMa
 
 
 def test_tracker_identity_vote_and_sticky():
-    tracker = CameraTracker(CFG.face, CFG.pose, CFG.tracking)
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
     t = 0.0
     for _ in range(2):  # 투표 2번은 아직 부족 (vote_min=3)
         persons = tracker.update([_face_on(STANDING, "MEMBER_A")], [STANDING], t)
@@ -120,7 +123,7 @@ def test_tracker_identity_vote_and_sticky():
 
 
 def test_tracker_posture_needs_hold_and_walking():
-    tracker = CameraTracker(CFG.face, CFG.pose, CFG.tracking)
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
     tracker.update([], [STANDING], 0.0)
     assert tracker.update([], [STANDING], 0.3)[0].posture == Posture.UNKNOWN  # 0.5초 유지 전
     assert tracker.update([], [STANDING], 0.6)[0].posture == Posture.STANDING
@@ -135,14 +138,83 @@ def test_tracker_posture_needs_hold_and_walking():
 
 
 def test_tracker_drops_lost_person():
-    tracker = CameraTracker(CFG.face, CFG.pose, CFG.tracking)
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
     tracker.update([], [STANDING], 0.0)
     assert len(tracker.update([], [], 0.5)) == 1
     assert tracker.update([], [], 1.6) == []
 
 
-def test_camera_only_snapshot_does_not_invent_values():
+def _shift(pose: PoseResult, dx: float) -> PoseResult:
+    return make_pose({i: (p[0] + dx, p[1]) for i, p in enumerate(pose.points) if pose.visibility[i] > 0})
+
+
+def test_identity_kept_when_face_unrecognizable():
+    """누워서 옆얼굴이라 UNKNOWN 판단이 이어져도 확정된 신원은 유지, 다른 가족으로 확정되면 바뀜."""
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
+    t = 0.0
+    for name, n in (("MEMBER_A", 5), ("UNKNOWN", 10)):
+        for _ in range(n):
+            persons = tracker.update([_face_on(LYING, name)], [LYING], t)
+            t += 0.1
+    assert persons[0].identity == "MEMBER_A" and persons[0].identity_confidence > 0
+    for _ in range(10):
+        persons = tracker.update([_face_on(LYING, "MEMBER_B")], [LYING], t)
+        t += 0.1
+    assert persons[0].identity == "MEMBER_B"
+
+
+def test_duplicate_bodies_on_one_person_are_merged():
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
+    persons = tracker.update([], [LYING, _shift(LYING, 15)], 0.0)
+    assert len(persons) == 1
+
+
+def test_two_separate_people_are_not_merged():
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
+    assert len(tracker.update([], [STANDING, _shift(STANDING, 400)], 0.0)) == 2
+
+
+def test_fast_walking_keeps_same_track():
+    """0.1초에 120px 이동 → 이전 상자(폭 80px)와 겹치지 않아도 같은 사람."""
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
+    ids = {tracker.update([], [_shift(STANDING, 120 * i)], 0.1 * i)[0].track_id for i in range(6)}
+    assert ids == {1}
+
+
+def test_new_person_needs_confirm_seconds():
+    tracker = CameraTracker(CFG.face, CFG.pose, CFG.tracking)  # confirm_seconds 0.5
+    assert tracker.update([], [STANDING], 0.0) == []
+    assert tracker.update([], [STANDING], 0.3) == []
+    assert len(tracker.update([], [STANDING], 0.6)) == 1
+    # 0.3초만 보인 오검출은 목록에 나타나지 않음
     tracker = CameraTracker(CFG.face, CFG.pose, CFG.tracking)
+    seen = [tracker.update([], [STANDING] if t < 0.3 else [], t) for t in (0.0, 0.1, 0.2, 0.3, 0.6, 0.9, 1.5)]
+    assert all(p == [] for p in seen)
+
+
+def test_face_outside_lying_body_box_is_paired():
+    """누우면 머리가 어깨 바깥이라 얼굴이 관절로 만든 몸 상자 밖에 놓인다 → 가까운 몸에 붙인다."""
+    body_only = make_pose({i: tuple(p) for i, p in enumerate(LYING.points)
+                           if LYING.visibility[i] > 0 and i != NOSE})  # 코 안 보임, 몸 상자 x 60~620 밖
+    face = FaceMatch((0, 270, 50, 320), "MEMBER_A", 0.6, 0.8)        # 얼굴 중심 x=25 (몸 상자 왼쪽 밖)
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
+    persons = tracker.update([face], [body_only], 0.0)
+    assert len(persons) == 1 and persons[0].face is face
+
+
+def test_face_only_frame_does_not_shrink_body_box():
+    """이불로 몸이 잠깐 안 잡히고 얼굴만 잡혀도, 몸이 다시 잡히면 같은 사람."""
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
+    face = _face_on(LYING, "MEMBER_A")
+    tracker.update([face], [LYING], 0.0)
+    tracker.update([face], [], 0.1)  # 얼굴만
+    tracker.update([face], [], 0.2)
+    persons = tracker.update([face], [LYING], 0.3)
+    assert [p.track_id for p in persons] == [1]
+
+
+def test_camera_only_snapshot_does_not_invent_values():
+    tracker = CameraTracker(CFG.face, CFG.pose, TRK)
     persons = tracker.update([], [STANDING], 0.0)
     snap = build_snapshot(persons, Light.BRIGHT, None, FAMILY)
     p = snap.persons[0]
