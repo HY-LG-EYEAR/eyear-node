@@ -58,6 +58,8 @@ class TrackingConfig:
     duplicate_overlap: float = 0.6
     confirm_seconds: float = 0.5
     face_body_margin: float = 0.5
+    single_person: bool = True
+    single_person_hold_seconds: float = 3.0
 
 
 @dataclass

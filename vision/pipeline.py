@@ -11,6 +11,7 @@ from schema.enums import Light
 from vision.activity import ActivityJudge, ClipRestScorer, crop_person
 from vision.clip import load_clip
 from vision.config import VisionConfig, load_vision_config
+from vision.continuity import SinglePersonContinuity
 from vision.face_id import FaceGallery, FaceIdentifier
 from vision.light import classify_light
 from vision.person_check import ClipPersonScorer, PersonVerifier
@@ -45,6 +46,8 @@ class VisionPipeline:
         check = self.config.person_check
         self.verifier = PersonVerifier(check, ClipPersonScorer(check, clip) if clip and check.enabled else None)
         self.activity = ActivityJudge(self.config.resting)
+        tracking = self.config.tracking
+        self.single = SinglePersonContinuity(tracking.single_person_hold_seconds) if tracking.single_person else None
 
     def process(self, frame: np.ndarray, now: float) -> VisionResult:
         light, lum = classify_light(frame, self.config.light)
@@ -52,7 +55,10 @@ class VisionPipeline:
         poses = self.pose.detect(frame, now)
         tracked = self.tracker.update(faces, poses, now)
         persons = self.verifier.filter(frame, tracked, now)  # 얼굴 없는 가짜 사람(빈 의자 등) 거르기
-        hidden = [p for p in tracked if p not in persons]
+        kept = {id(p) for p in persons}
+        hidden = [p for p in tracked if id(p) not in kept]
+        if self.single is not None:  # 1인 방: 카메라 트랙이 바뀌어도 같은 사람으로 (휴식 판단도 이어짐)
+            persons = self.single.update(persons, now)
         for p in persons:
             rest_prob = None
             if self.scorer is not None and self.activity.needs_clip(p.track_id, p.posture, now):
