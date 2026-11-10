@@ -13,6 +13,7 @@
 - 말소리 버퍼는 인식이 끝나면 바로 버린다.
 """
 
+import math
 import queue
 import threading
 import time
@@ -29,6 +30,13 @@ from audio.wakeword import TextWakeWord
 from publisher import topics
 from publisher.sinks import Sink
 from schema.models import SpeakCommand, VoiceCommand, VoiceReply
+
+
+def _dbfs(samples) -> float:
+    import numpy as np
+
+    rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float64))))) / 32768.0
+    return 20 * math.log10(max(rms, 1e-9))
 
 
 class State(str, Enum):
@@ -51,6 +59,7 @@ class VoiceSession:
         config: AudioConfig,
         clock: Callable[[], float] = time.monotonic,
         log: Callable[[str], None] = print,
+        debug: bool = False,
     ):
         self.source = source
         self.frames = source.subscribe()
@@ -65,6 +74,8 @@ class VoiceSession:
         self.clock = clock
         self.log = log
         self.state = State.IDLE
+        self.debug = debug          # 테스트용: 대답 듣는 동안의 소리 크기·말소리 구간·인식 결과를 화면에 표시
+        self._peak_dbfs = -120.0    # 대답 듣는 동안 들린 가장 큰 소리 (debug)
         self._commands: queue.Queue[SpeakCommand] = queue.Queue()
         self._deadline = 0.0
         self._question: SpeakCommand | None = None
@@ -96,6 +107,8 @@ class VoiceSession:
         except queue.Empty:
             frame = None
         if frame is not None:
+            if self.debug and self.state == State.LISTEN_REPLY:
+                self._peak_dbfs = max(self._peak_dbfs, _dbfs(frame))
             segment = self.segmenter.push(frame)
             if segment is not None:
                 self._on_segment(segment)
@@ -113,6 +126,7 @@ class VoiceSession:
             self.state = State.LISTEN_REPLY
             self._question = command
             self._deadline = self.clock() + self.config.tts.mute_tail_seconds + command.listen_seconds
+            self._peak_dbfs = -120.0
             self.log(f"[음성] 대답 듣는 중 (최대 {command.listen_seconds:g}초)")
 
     def _drain(self) -> None:
@@ -129,6 +143,9 @@ class VoiceSession:
         except Exception as e:  # 인식 실패는 들은 게 없는 것으로 처리 (지어내지 않음)
             self.log(f"[음성] 인식 오류: {e}")
             result = None
+        if self.debug and self.state == State.LISTEN_REPLY:
+            heard = "인식 결과 없음 (잡음·환각으로 처리)" if result is None else f"'{result.text}' (신뢰도 {result.confidence:.2f})"
+            self.log(f"[음성 테스트] 말소리 구간 {len(segment) / 16000:.2f}초, 크기 {_dbfs(segment):.0f} dBFS → {heard}")
         del segment
 
         if self.state == State.LISTEN_REPLY:
@@ -155,6 +172,8 @@ class VoiceSession:
         if self.state == State.IDLE or self.segmenter.in_speech or self.clock() < self._deadline:
             return
         if self.state == State.LISTEN_REPLY:
+            if self.debug:
+                self.log(f"[음성 테스트] 말소리 구간을 못 찾음. 듣는 동안 가장 큰 소리 {self._peak_dbfs:.0f} dBFS")
             self._reply(None, None)
         else:
             self.log("[음성] 명령 없음 → 대기")

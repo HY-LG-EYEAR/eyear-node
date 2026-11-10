@@ -21,7 +21,7 @@ from publisher import topics
 from publisher.sinks import JsonlSink, MqttSink, MultiSink, Sink, StdoutSink
 
 
-def build_session(config, source, sink: Sink, room_id: str) -> VoiceSession:
+def build_session(config, source, sink: Sink, room_id: str, debug: bool = False) -> VoiceSession:
     print(f"Whisper '{config.stt.model}' 모델 불러오는 중...")
     recognizer = SpeechRecognizer(config.stt)
     return VoiceSession(
@@ -34,6 +34,7 @@ def build_session(config, source, sink: Sink, room_id: str) -> VoiceSession:
         node_id=f"node_{room_id}",
         room_id=room_id,
         config=config,
+        debug=debug,
     )
 
 
@@ -43,6 +44,7 @@ def main() -> None:
     parser.add_argument("--mqtt", default=None, metavar="HOST[:PORT]", help="없으면 화면 출력만 (질문은 받을 수 없음)")
     parser.add_argument("--jsonl", default=None, metavar="PATH")
     parser.add_argument("--wav", default=None, help="마이크 대신 WAV 파일 (16kHz 모노 16비트)")
+    parser.add_argument("--debug", action="store_true", help="테스트용: 대답 듣는 동안의 소리 크기·말소리 구간·인식 결과 표시")
     args = parser.parse_args()
 
     config = load_audio_config()
@@ -57,7 +59,7 @@ def main() -> None:
     sink = MultiSink(sinks)
 
     source = WavSource(args.wav) if args.wav else MicStream(config.mic.device)
-    session = build_session(config, source, sink, args.room)
+    session = build_session(config, source, sink, args.room, debug=args.debug)
     if mqtt:
         mqtt.subscribe(topics.speak(args.room), session.on_speak_message)
         print(f"질문 수신: {topics.speak(args.room)}")
