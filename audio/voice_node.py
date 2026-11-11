@@ -21,13 +21,15 @@ from publisher import topics
 from publisher.sinks import JsonlSink, MqttSink, MultiSink, Sink, StdoutSink
 
 
-def build_session(config, source, sink: Sink, room_id: str, debug: bool = False) -> VoiceSession:
+def build_session(config, source, sink: Sink, room_id: str, debug: bool = False,
+                  record_dir: str | None = None) -> VoiceSession:
     print(f"Whisper '{config.stt.model}' 모델 불러오는 중...")
     recognizer = SpeechRecognizer(config.stt)
     return VoiceSession(
         source=source,
         segmenter=SpeechSegmenter(config.vad),
         transcribe=recognizer.transcribe,
+        transcribe_reply=lambda audio: recognizer.transcribe(audio, hint=config.stt.reply_hint),
         say=Speaker(config.tts).say,
         wakeword=TextWakeWord(config.wakeword.phrases),
         sink=sink,
@@ -35,6 +37,7 @@ def build_session(config, source, sink: Sink, room_id: str, debug: bool = False)
         room_id=room_id,
         config=config,
         debug=debug,
+        record_dir=record_dir,
     )
 
 
@@ -45,6 +48,8 @@ def main() -> None:
     parser.add_argument("--jsonl", default=None, metavar="PATH")
     parser.add_argument("--wav", default=None, help="마이크 대신 WAV 파일 (16kHz 모노 16비트)")
     parser.add_argument("--debug", action="store_true", help="테스트용: 대답 듣는 동안의 소리 크기·말소리 구간·인식 결과 표시")
+    parser.add_argument("--record-eval", metavar="DIR", default=None,
+                        help="평가용 녹음 (동의한 경우에만): 질문에 대한 대답 구간만 WAV로 저장. 예: data/eval/voice")
     args = parser.parse_args()
 
     config = load_audio_config()
@@ -59,7 +64,7 @@ def main() -> None:
     sink = MultiSink(sinks)
 
     source = WavSource(args.wav) if args.wav else MicStream(config.mic.device)
-    session = build_session(config, source, sink, args.room, debug=args.debug)
+    session = build_session(config, source, sink, args.room, debug=args.debug, record_dir=args.record_eval)
     if mqtt:
         mqtt.subscribe(topics.speak(args.room), session.on_speak_message)
         print(f"질문 수신: {topics.speak(args.room)}")

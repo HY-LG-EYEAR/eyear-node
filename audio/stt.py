@@ -32,6 +32,21 @@ def is_hallucination(text: str, patterns: list[str]) -> bool:
     return any(normalize(p) in norm for p in patterns)
 
 
+def prepare_audio(audio_int16: np.ndarray, config: SttConfig) -> np.ndarray:
+    """int16 → float32. 앞뒤 무음을 붙이고, 작은 소리는 키운다.
+
+    - 앞뒤 무음: 말이 바로 시작하는 짧은 구간("응")은 Whisper가 놓치는 경우가 있음 (2026-11-06 실험)
+    - 키우기: 침대(약 2m)에서는 소리가 노트북 앞보다 8~10 dB 작아 인식이 실패함 (2026-11-11 실측)
+    """
+    pad = np.zeros(int(config.pad_seconds * 16000), dtype=np.int16)
+    audio = np.concatenate([pad, audio_int16, pad]).astype(np.float32) / 32768.0
+    if config.gain:
+        peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+        if peak > 0:
+            audio = audio * min(config.gain_peak / peak, config.max_gain)
+    return audio
+
+
 class SpeechRecognizer:
     def __init__(self, config: SttConfig):
         from faster_whisper import WhisperModel  # 무거워서 실제로 쓸 때만 불러옴
@@ -39,11 +54,12 @@ class SpeechRecognizer:
         self.config = config
         self._model = WhisperModel(config.model, device="cpu", compute_type=config.compute_type)
 
-    def transcribe(self, audio_int16: np.ndarray) -> Transcript | None:
-        """말소리가 아니거나 환각으로 보이면 None (지어내지 않음)."""
-        # 앞뒤에 무음을 붙임: 말이 바로 시작하는 짧은 구간("응")은 Whisper가 놓치는 경우가 있음 (2026-11-06 실험)
-        pad = np.zeros(int(self.config.pad_seconds * 16000), dtype=np.int16)
-        audio = np.concatenate([pad, audio_int16, pad]).astype(np.float32) / 32768.0
+    def transcribe(self, audio_int16: np.ndarray, hint: str | None = None) -> Transcript | None:
+        """말소리가 아니거나 환각으로 보이면 None (지어내지 않음).
+
+        hint: 예상되는 말 (질문의 대답을 들을 때 "응. 아니. 네." 등). 짧은 대답 인식이 크게 좋아짐 (2026-11-11 실측)
+        """
+        audio = prepare_audio(audio_int16, self.config)
         segments, _ = self._model.transcribe(
             audio,
             language="ko",
@@ -51,6 +67,7 @@ class SpeechRecognizer:
             vad_filter=self.config.vad_filter,
             condition_on_previous_text=False,
             without_timestamps=True,
+            initial_prompt=hint,
         )
         segments = [s for s in segments if s.text.strip()]
         if not segments:

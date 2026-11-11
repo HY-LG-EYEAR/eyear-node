@@ -210,3 +210,50 @@ def test_invalid_speak_message_is_ignored():
     h.session.on_speak_message("eyear/v0/room1/speak", b'{"text": ""}')
     h.idle(0.1)
     assert h.said == []
+
+
+class QuietHarness(Harness):
+    """VAD가 작은 목소리를 놓치는 상황: segmenter는 아무것도 말소리로 보지 않는다."""
+
+    def __init__(self, reply_text):
+        super().__init__({})
+        self.reply_calls = []
+        self.session.segmenter = SpeechSegmenter(self.config.vad, is_speech=lambda f: False)
+        self.session.transcribe_reply = self._reply
+        self.reply_text = reply_text
+
+    def _reply(self, audio):
+        self.reply_calls.append(len(audio))
+        return None if self.reply_text is None else Transcript(self.reply_text, 0.3)
+
+
+def test_quiet_reply_missed_by_vad_is_found_in_whole_window():
+    h = QuietHarness("응")
+    h.session.submit(SpeakCommand(text="주무실 건가요?", expect_reply=True, listen_seconds=5))
+    h.idle(0.1)
+    h.frames(3, 5.5)  # 작은 목소리 (VAD는 못 잡음)
+    [reply] = h.published()
+    assert (reply.text, reply.no_response) == ("응", False)
+    assert len(h.reply_calls) == 1 and h.reply_calls[0] > 16000 * 4  # 들은 소리 전체를 한 번 인식
+    assert h.session._window == []  # 보낸 뒤 버림
+
+
+def test_whole_window_noise_is_still_no_response():
+    h = QuietHarness(None)
+    h.session.submit(SpeakCommand(text="주무실 건가요?", expect_reply=True, listen_seconds=5))
+    h.idle(0.1)
+    h.frames(3, 5.5)
+    [reply] = h.published()
+    assert reply.no_response and reply.text is None
+
+
+def test_reply_uses_hinted_recognizer_but_commands_do_not():
+    h = Harness({1: "하이 LG 불 켜줘", 2: "응"})
+    used = []
+    h.session.transcribe_reply = lambda seg: (used.append("reply"), Transcript("응", 0.5))[1]
+    h.talk(1)  # 명령 → 일반 인식
+    assert used == [] and h.published()[0].text == "불 켜줘"
+    h.session.submit(SpeakCommand(text="주무실 건가요?", expect_reply=True))
+    h.idle(0.1)
+    h.talk(2)  # 대답 → 힌트 인식
+    assert used == ["reply"] and h.published()[-1].text == "응"

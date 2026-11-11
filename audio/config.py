@@ -37,6 +37,10 @@ class SttConfig:
     beam_size: int = 5
     vad_filter: bool = True
     pad_seconds: float = 0.3
+    gain: bool = True
+    gain_peak: float = 0.5
+    max_gain: float = 30.0
+    reply_hint: str = "응. 아니. 네. 아니요. 그래. 응, 잘게."
     hallucinations: list[str] = field(default_factory=list)
 
 

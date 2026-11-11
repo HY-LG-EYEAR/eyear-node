@@ -11,6 +11,10 @@
 - 웨이크워드가 없는 발화는 Node 안에서 버린다 (내용을 내보내지도, 찍지도 않음, R-10).
 - speak 명령은 IDLE일 때 하나씩 처리한다 (대답을 듣는 중에는 기다림).
 - 말소리 버퍼는 인식이 끝나면 바로 버린다.
+- 대답을 들을 때는 예상 대답 힌트를 준 인식(transcribe_reply)을 쓰고, 듣는 동안의 소리(최대 listen_seconds)를 모아 둔다.
+  말소리 구간을 하나도 못 찾았으면 마감 때 모아 둔 소리 전체를 한 번 더 인식한다.
+  (2026-11-11 실측: 침대에서 작게 대답하면 webrtcvad가 말소리 구간을 놓침. Whisper 내장 VAD가 잡음에서는 지어내지 않음을 확인)
+  모아 둔 소리는 대답을 보낸 뒤 바로 버린다.
 """
 
 import math
@@ -20,6 +24,7 @@ import time
 from collections.abc import Callable
 from enum import Enum
 
+import numpy as np
 from pydantic import ValidationError
 
 from audio.config import AudioConfig
@@ -33,8 +38,6 @@ from schema.models import SpeakCommand, VoiceCommand, VoiceReply
 
 
 def _dbfs(samples) -> float:
-    import numpy as np
-
     rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float64))))) / 32768.0
     return 20 * math.log10(max(rms, 1e-9))
 
@@ -60,11 +63,16 @@ class VoiceSession:
         clock: Callable[[], float] = time.monotonic,
         log: Callable[[str], None] = print,
         debug: bool = False,
+        record_dir: str | None = None,
+        transcribe_reply: Callable[[object], Transcript | None] | None = None,
     ):
         self.source = source
         self.frames = source.subscribe()
         self.segmenter = segmenter
         self.transcribe = transcribe
+        self.transcribe_reply = transcribe_reply or transcribe
+        self._window: list = []      # 대답 듣는 동안의 소리 (대답을 보내면 버림)
+        self._tried_segment = False  # 대답 듣는 동안 말소리 구간을 하나라도 인식해 봤는지
         self.say = say
         self.wakeword = wakeword
         self.sink = sink
@@ -76,6 +84,8 @@ class VoiceSession:
         self.state = State.IDLE
         self.debug = debug          # 테스트용: 대답 듣는 동안의 소리 크기·말소리 구간·인식 결과를 화면에 표시
         self._peak_dbfs = -120.0    # 대답 듣는 동안 들린 가장 큰 소리 (debug)
+        # 평가용 녹음 (사용자 동의 시에만): 질문에 대한 대답을 듣는 동안의 소리만 WAV로 저장. 그 밖의 소리는 저장하지 않음
+        self.record_dir = record_dir
         self._commands: queue.Queue[SpeakCommand] = queue.Queue()
         self._deadline = 0.0
         self._question: SpeakCommand | None = None
@@ -107,8 +117,10 @@ class VoiceSession:
         except queue.Empty:
             frame = None
         if frame is not None:
-            if self.debug and self.state == State.LISTEN_REPLY:
-                self._peak_dbfs = max(self._peak_dbfs, _dbfs(frame))
+            if self.state == State.LISTEN_REPLY:
+                self._window.append(frame)
+                if self.debug:
+                    self._peak_dbfs = max(self._peak_dbfs, _dbfs(frame))
             segment = self.segmenter.push(frame)
             if segment is not None:
                 self._on_segment(segment)
@@ -127,6 +139,7 @@ class VoiceSession:
             self._question = command
             self._deadline = self.clock() + self.config.tts.mute_tail_seconds + command.listen_seconds
             self._peak_dbfs = -120.0
+            self._window, self._tried_segment = [], False
             self.log(f"[음성] 대답 듣는 중 (최대 {command.listen_seconds:g}초)")
 
     def _drain(self) -> None:
@@ -137,12 +150,18 @@ class VoiceSession:
                 break
         self.segmenter.reset()
 
-    def _on_segment(self, segment) -> None:
+    def _recognize(self, audio, reply: bool) -> Transcript | None:
         try:
-            result = self.transcribe(segment)
+            return (self.transcribe_reply if reply else self.transcribe)(audio)
         except Exception as e:  # 인식 실패는 들은 게 없는 것으로 처리 (지어내지 않음)
             self.log(f"[음성] 인식 오류: {e}")
-            result = None
+            return None
+
+    def _on_segment(self, segment) -> None:
+        listening = self.state == State.LISTEN_REPLY
+        if listening:
+            self._tried_segment = True
+        result = self._recognize(segment, reply=listening)
         if self.debug and self.state == State.LISTEN_REPLY:
             heard = "인식 결과 없음 (잡음·환각으로 처리)" if result is None else f"'{result.text}' (신뢰도 {result.confidence:.2f})"
             self.log(f"[음성 테스트] 말소리 구간 {len(segment) / 16000:.2f}초, 크기 {_dbfs(segment):.0f} dBFS → {heard}")
@@ -168,13 +187,37 @@ class VoiceSession:
                 self._deadline = self.clock() + self.config.wakeword.follow_up_seconds
                 self.log("[음성] '하이 엘지' 감지 → 명령 기다리는 중")
 
+    def _save_eval(self, audio) -> None:
+        import wave
+        from datetime import datetime
+        from pathlib import Path
+
+        folder = Path(self.record_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        name = f"{datetime.now():%Y%m%d_%H%M%S}_{str(self._question.command_id)[:8]}.wav"
+        with wave.open(str(folder / name), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(audio.astype("int16").tobytes())
+        self.log(f"[음성 테스트] 평가용 녹음 저장: {name}")
+
     def _check_deadline(self) -> None:
         if self.state == State.IDLE or self.segmenter.in_speech or self.clock() < self._deadline:
             return
         if self.state == State.LISTEN_REPLY:
-            if self.debug:
-                self.log(f"[음성 테스트] 말소리 구간을 못 찾음. 듣는 동안 가장 큰 소리 {self._peak_dbfs:.0f} dBFS")
-            self._reply(None, None)
+            result = None
+            if not self._tried_segment and self._window:
+                # 말소리 구간을 못 찾음 → 들은 소리 전체를 한 번 더 인식 (작은 목소리 대비)
+                result = self._recognize(np.concatenate(self._window), reply=True)
+                if self.debug:
+                    heard = "인식 결과 없음" if result is None else f"'{result.text}' (신뢰도 {result.confidence:.2f})"
+                    self.log(f"[음성 테스트] 말소리 구간을 못 찾아 전체 {len(self._window) * 0.03:.1f}초를 다시 인식 "
+                             f"(가장 큰 소리 {self._peak_dbfs:.0f} dBFS) → {heard}")
+            if result is None:
+                self._reply(None, None)
+            else:
+                self._reply(result.text, result.confidence)
         else:
             self.log("[음성] 명령 없음 → 대기")
             self.state = State.IDLE
@@ -182,6 +225,9 @@ class VoiceSession:
     # ---------- 출력 ----------
 
     def _reply(self, text: str | None, confidence: float | None) -> None:
+        if self.record_dir and self._window:
+            self._save_eval(np.concatenate(self._window))
+        self._window = []  # 들은 소리는 대답을 보낸 뒤 바로 버림
         reply = VoiceReply(
             node_id=self.node_id,
             room_id=self.room_id,
