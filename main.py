@@ -4,9 +4,11 @@
     python main.py --mqtt localhost --no-window     # 창 없이
     python main.py --mqtt localhost --no-camera     # 마이크만 (재실·신원·밝기 = UNKNOWN)
     python main.py --mqtt localhost --no-audio      # 카메라만 (소리 = UNKNOWN, 음성 대화 없음)
+    python main.py --mqtt localhost --no-radar      # 레이더 없이 (재실은 카메라만, 위치·움직임 = UNKNOWN)
 
 스레드 구성:
     메인 스레드   카메라 → 신원·자세·활동(RESTING)·밝기 → RoomState → EventBuilder → 방 상태 메시지 (창은 메인 스레드에서만 그릴 수 있음)
+    레이더        LD2450·LD2410C 시리얼 → RadarInput → RoomState에서 카메라와 합침 (재실·위치·움직임, 어둠 속 이어가기)
     소리 분류     마이크 → 1초마다 audio.context → RoomState
     음성 대화     마이크 → "하이 엘지" / 질문 대답 → voice/command, voice/reply
                  중앙의 speak 수신 → 스피커 (말하는 동안 마이크를 꺼서 소리 분류도 자기 목소리를 듣지 않음)
@@ -21,6 +23,7 @@ import time
 import traceback
 
 from fusion.events import EventBuilder
+from fusion.radar_input import RadarInput
 from fusion.room_state import RoomState
 from publisher import topics
 from publisher.sinks import JsonlSink, MqttSink, MultiSink, Sink, StdoutSink
@@ -49,6 +52,7 @@ def main() -> None:
     parser.add_argument("--heartbeat", type=float, default=1.0)
     parser.add_argument("--no-camera", action="store_true")
     parser.add_argument("--no-audio", action="store_true", help="마이크·스피커를 쓰지 않음 (소리 분류, 음성 대화 모두 끔)")
+    parser.add_argument("--no-radar", action="store_true", help="레이더를 쓰지 않음 (포트·설정은 config/radar.yaml)")
     parser.add_argument("--no-window", action="store_true")
     parser.add_argument("--no-resting", action="store_true", help="휴식 판단(MobileCLIP) 끔 → 누움은 activity UNKNOWN")
     parser.add_argument("--source", default=None, help="카메라 번호 또는 동영상 파일 (기본: config/vision.yaml)")
@@ -64,12 +68,13 @@ def main() -> None:
         mqtt = MqttSink(host, int(port or 1883))
         sinks.append(mqtt)
     sink = MultiSink(sinks)
-    room = RoomState(family)
+    closers = []
+    radar = None if args.no_radar else start_radar(closers)
+    room = RoomState(family, radar=radar)
     builder = EventBuilder(f"node_{args.room}", args.room, family, args.heartbeat)
 
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
-    closers = []
 
     # ---------- 마이크: 소리 분류 + 음성 대화 ----------
     if not args.no_audio:
@@ -92,10 +97,13 @@ def main() -> None:
         closers += [mic.close, yamnet.close]
         print("마이크 켜짐: '하이 엘지, 불 켜줘'라고 말해 보세요")
 
-    def publish_state() -> None:
-        message = builder.update(room.snapshot())
+    def publish_state():
+        """방 상태를 한 번 계산해 (바뀌었거나 heartbeat 때) 보내고, 화면 표시용으로 돌려준다."""
+        snapshot = room.snapshot()
+        message = builder.update(snapshot)
         if message:
             sink.publish(topics.state(args.room), message)
+        return snapshot
 
     try:
         if args.no_camera:
@@ -112,6 +120,43 @@ def main() -> None:
         for close in reversed(closers):
             close()
         sink.close()
+
+
+def start_radar(closers: list) -> RadarInput | None:
+    """config/radar.yaml의 포트로 두 레이더를 연다. 연결된 게 없으면 None (레이더 없이 동작)."""
+    from pathlib import Path
+
+    from radar.config import load_radar_config
+    from radar.ld2410c import Ld2410StreamParser
+    from radar.ld2450 import Ld2450StreamParser
+    from radar.source import SerialSource
+
+    cfg = load_radar_config()
+    radar = RadarInput(cfg)
+    p50, p10 = Ld2450StreamParser(), Ld2410StreamParser()
+
+    def feed_50(b: bytes) -> None:
+        for targets in p50.feed(b):
+            radar.on_ld2450(targets)
+
+    def feed_10(b: bytes) -> None:
+        for report in p10.feed(b):
+            radar.on_ld2410(report)
+
+    opened = []
+    for name, sensor, feed in (("LD2450", cfg.ld2450, feed_50), ("LD2410C", cfg.ld2410c, feed_10)):
+        if sensor.port and Path(sensor.port).exists():
+            source = SerialSource(sensor.port, feed, sensor.baud).start()
+            closers.append(source.close)
+            opened.append(name)
+        else:
+            print(f"{name} 없음 ({sensor.port}) → 이 레이더 값은 UNKNOWN")
+    if not opened:
+        print("레이더 없음 → 재실은 카메라만, 위치·움직임 = UNKNOWN")
+        return None
+    where = "설치 위치 있음" if cfg.installation.placed else "설치 위치 미설정 → 위치(position)는 null"
+    print(f"레이더 켜짐: {', '.join(opened)} ({where})")
+    return radar
 
 
 def run_camera(args, family, room: RoomState, publish_state, stop: threading.Event, closers: list) -> None:
@@ -146,14 +191,18 @@ def run_camera(args, family, room: RoomState, publish_state, stop: threading.Eve
 
         result = pipeline.process(frame, now)
         room.set_camera(result.persons, result.light)
-        publish_state()
+        snapshot = publish_state()
 
         fps = 0.9 * fps + 0.1 * (1.0 / max(now - last, 1e-6))
         last = now
         if not args.no_window:
-            audio = room.snapshot().audio
-            header = (f"{result.light.value} (lum {result.lum:.0f})  persons {len(result.persons)}  "
-                      f"audio {audio.context} {audio.confidence:.2f}  {fps:.1f} fps")
+            header = (f"{result.light.value} (lum {result.lum:.0f})  occ {snapshot.occupancy.state} "
+                      f"{snapshot.occupancy.confidence:.2f}  audio {snapshot.audio.context}  {fps:.1f} fps")
+            for k, p in enumerate(snapshot.persons):  # 보내는 값 (카메라 + 레이더 융합 결과)
+                pos = "-" if p.position is None else f"({p.position.x:.1f},{p.position.y:.1f})m"
+                line = f"SEND #{p.track_id} {p.identity}/{p.identity_source} {p.posture} {p.activity} motion {p.motion} {pos}"
+                cv2.putText(frame, line, (10, 55 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 4, cv2.LINE_AA)
+                cv2.putText(frame, line, (10, 55 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1, cv2.LINE_AA)
             draw(frame, result.persons, header, config.pose.min_visibility)
             cv2.imshow("EYEAR node", frame)
             if cv2.waitKey(1) & 0xFF in (ord("q"), 27):

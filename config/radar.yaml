@@ -18,3 +18,22 @@ ld2410c:
   # 레이더 내부 설정 (전원을 꺼도 유지). 바꾸기: python -m radar.ld2410c_config --max-gate N
   # 2026-11-12: 공장 기본 8칸(6.0m) → 5칸(3.75m)으로 줄임 (먼 곳·옆방 오감지 줄이기. LD2450 3.75m와 같게)
   max_gate: 5
+
+installation:
+  # 레이더(LD2450)를 방 어디에 어느 방향으로 설치했는지. 좌표 기준 (2026-11-12 확정, 이효창에게 전달):
+  #   평면도를 위에서 본 2D, 미터. 원점 = 평면도에서 방의 왼쪽 아래 모서리, x = 오른쪽, y = 위쪽
+  # 값이 없으면 위치(position)는 null로 보냄 (지어내지 않음, R-09). 시연 설치(단계 7) 때 재서 넣을 것
+  radar_x: null
+  radar_y: null
+  facing_deg: null          # 레이더 앞면이 보는 방향. 0 = 평면도 오른쪽(+x), 90 = 위(+y), 반시계 방향
+  room_width_m: null        # 방의 x 방향 크기. room_width_m·room_depth_m이 있으면 방 밖으로 계산되는 대상은 버림 (벽 너머)
+  room_depth_m: null        # 방의 y 방향 크기
+
+motion:
+  # 움직임 정도 (2026-11-12 실측, LD2410C 움직임 에너지 중간값: 가만히 0, 뒤척임 18, 서서 흔들림 32, 걷기 100)
+  window_seconds: 3         # 최근 이 시간의 중간값으로 판단 (순간 흔들림 무시). 위치도 같은 시간의 중간값
+  still_below: 15           # 움직임 에너지가 이보다 작으면 STILL
+  active_from: 60           # 이 이상이면 ACTIVE (그 사이는 SLIGHT)
+  active_speed_cms: 30      # LD2450 속도가 이 이상이어도 ACTIVE (걷기)
+  slight_speed_cms: 8       # LD2410C가 없을 때만: LD2450 속도가 이 이상이면 SLIGHT
+  stale_seconds: 2          # 레이더 값이 이 시간 넘게 안 오면 그 레이더는 없는 것으로 봄 (UNKNOWN)

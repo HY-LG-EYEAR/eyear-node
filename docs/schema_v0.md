@@ -69,9 +69,9 @@ Node ──("하이 엘지" 뒤 발화 텍스트)────────▶ eye
 | `identity` | `MEMBER_A`~`MEMBER_D`(가족), `UNKNOWN`(판단 불가), `GUEST`(미등록 인물) |
 | `identity_source` | `FACE`(얼굴), `VOICE`(목소리), `TRACK_CARRIED`(얼굴로 확인한 뒤 어둠 속에서 레이더로 이어받음), `UNKNOWN` |
 | `posture` | `STANDING` `SITTING` `LYING` `WALKING` `UNKNOWN` |
-| `motion` | 레이더 기준 움직임: `STILL` `SLIGHT` `ACTIVE` `UNKNOWN` |
+| `motion` | 레이더 기준 움직임 (최근 3초): `STILL`(가만히) `SLIGHT`(뒤척임·서서 흔들림) `ACTIVE`(걷기 등) `UNKNOWN` |
 | `activity` | `RESTING`(휴식, 잠과 구분하지 않음) `OTHER` `UNKNOWN` |
-| `position` | 방 기준 좌표(미터). 레이더가 위치를 모르면 `null` |
+| `position` | 방 기준 좌표(미터, 아래 "좌표 기준"). 레이더가 위치를 모르거나 설치 정보가 없으면 `null` |
 | `audio.context` | `SILENT` `SPEECH` `CONVERSATION` `MUSIC` `TV` `LOUD_NOISE` `UNKNOWN` |
 | `light` | `DARK` `DIM` `BRIGHT` `UNKNOWN` |
 | `*_confidence` | 신뢰도 0~1 |
@@ -94,6 +94,19 @@ Node ──("하이 엘지" 뒤 발화 텍스트)────────▶ eye
 - **`occupancy: OCCUPIED` + `persons: []`**: 가만히 누운 사람을 위치 레이더가 놓쳤지만, 재실 레이더는 사람이 있다고 판단한 상태입니다. "사람 있음"으로 처리해 주세요.
 - **`UNKNOWN`**: 센서가 없거나 판단할 수 없다는 뜻입니다. 빈 방이나 특정 값으로 추측하지 말아 주세요. 예: `occupancy.state: UNKNOWN`은 "빈 방"이 아닙니다.
 - 어두울 때는 신원이 `TRACK_CARRIED`가 되고 신뢰도가 낮아집니다. 불이 켜지면 다시 `FACE`로 돌아옵니다.
+  - 카메라가 사람을 못 보는 동안(불 꺼짐, 이불, 카메라 밖)에도 레이더가 사람을 감지하면, 밝을 때 본 사람을 그대로 이어서 보냅니다.
+    이때 `posture`는 `UNKNOWN`(보이지 않으므로 지어내지 않음)이고, `RESTING`은 크게 움직이지(`ACTIVE` 3초 이상) 않는 동안 유지됩니다.
+  - 처음부터 어두운 방에 들어온 사람은 `identity: UNKNOWN`입니다.
+- **재실 판단은 레이더(LD2410C) 우선**입니다. 카메라에 안 보여도 레이더가 사람을 감지하면 `OCCUPIED`입니다.
+  반대로 위치 레이더(LD2450)에만 보이는 대상은 무시합니다 (두 레이더끼리 간섭으로 가끔 가짜 대상이 생김, 2026-11-12 실측).
+- 방1 Node는 레이더에서 **3.75m 안**만 봅니다 (벽 너머 사람이 잡혀서 제한). 사람이 나간 뒤 `EMPTY`가 되기까지 최소 5초 걸립니다.
+
+### 좌표 기준 (2026-11-12 확정)
+- **평면도를 위에서 내려다본 2D, 단위 미터**
+- **원점 (0, 0) = 평면도에서 각 방의 왼쪽 아래 모서리**, **x = 평면도 오른쪽**, **y = 평면도 위쪽**
+- 기준 평면도는 시나리오 시뮬레이션의 평면도(방1·방2·거실·세탁실)입니다.
+- 집 전체 좌표 = 방 좌표 + (평면도에서 그 방의 왼쪽 아래 모서리 위치). 3D 엔진(y가 위쪽)에서는 평면도 (x, y)를 (x, −z) 등으로 바꿔 쓰면 됩니다.
+- 레이더 설치 위치·방향은 Node 설정(`config/radar.yaml`의 `installation`)에 있고, 시연 설치 때 실측해 넣습니다. 그 전까지 `position`은 `null`입니다.
 - **`activity: RESTING`**: 카메라 기준으로 누운 자세(`LYING`)이고, 이미지–문장 매칭 모델(MobileCLIP)도 "침대에서 쉬는 중"이라고 판단하는 상태가 **5초 이상** 이어질 때 보냅니다.
   - 잠과 휴식은 구분하지 않습니다. 수면 여부는 중앙이 음성으로 물어봐 주세요.
   - 일어난 자세가 **2초 이상** 이어질 때만 `OTHER`로 바뀝니다. 뒤척임이나 이불 때문에 잠깐 자세를 놓쳐도 `RESTING`이 깜빡이지 않습니다.
@@ -229,7 +242,7 @@ $PY main.py --mqtt localhost --no-resting  # 휴식 판단(MobileCLIP) 끔 → �
 |---|---|---|
 | 토픽 이름 | `eyear/v0/{room_id}/state` 등 (1절) | 이효창, 송정빈 |
 | 방 ID | `room1` `room2` `living` `laundry` | 이효창 |
-| 좌표 원점·축 방향 | 방마다 문 쪽 모서리가 원점(임시) | 이효창 |
+| 좌표 원점·축 방향 | **확정안**: 평면도에서 방의 왼쪽 아래 모서리가 원점, x 오른쪽, y 위쪽 (2절 "좌표 기준") | 이효창 (확인) |
 | heartbeat 주기 | 1초 | 이효창 |
 | 가족 이름 표기 | `MEMBER_A`~`MEMBER_D` (실제 이름으로 바꿀지) | 전원 |
 | 음성 메시지 필드·듣기 시간 | 3절, 기본 5초 | 송정빈 |

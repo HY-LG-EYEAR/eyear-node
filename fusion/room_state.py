@@ -7,9 +7,13 @@ RoomState가 마지막 결과와 받은 시각을 들고 있다가, snapshot()�
 - 센서를 끈 경우(--no-camera 등), 또는 stale_seconds 넘게 결과가 오지 않으면 그 센서 값은 UNKNOWN
   - 카메라: 재실 UNKNOWN, 사람 목록 비움, 밝기 UNKNOWN
   - 마이크: audio UNKNOWN
-- 위치(position): null, 움직임(motion): UNKNOWN (레이더 담당, M5)
 - 활동(activity): 카메라 판단 (vision/activity.py: 자세 LYING + CLIP 동의가 몇 초 유지되면 RESTING)
+
+레이더가 있으면 (RadarInput): 재실·위치·움직임 정도를 레이더와 합친다 → fusion/fuse.py (1인 방 규칙)
+레이더가 없으면 카메라만:
+- 위치(position): null, 움직임(motion): UNKNOWN
 - 카메라에 아무도 안 보이면 EMPTY지만 신뢰도 0.5 (카메라 밖에 사람이 있을 수 있음, 2026-11-06 결정)
+  단 어두우면(DARK) 카메라로는 알 수 없으므로 UNKNOWN
 """
 
 import threading
@@ -17,6 +21,8 @@ import time
 from collections.abc import Callable
 
 from fusion.events import RoomSnapshot
+from fusion.fuse import SingleRoomFusion
+from fusion.radar_input import RadarInput
 from schema.enums import IDENTITY_UNKNOWN, Light
 from schema.models import Audio
 from vision.tracker import VisionPerson
@@ -38,6 +44,8 @@ def build_snapshot(
         persons = []
     elif persons:
         occupancy = {"state": "OCCUPIED", "confidence": SEEN_CONFIDENCE}
+    elif light == Light.DARK:
+        occupancy = {"state": "UNKNOWN", "confidence": 0.0}  # 어두우면 카메라로 빈 방인지 알 수 없음
     else:
         occupancy = {"state": "EMPTY", "confidence": NOT_SEEN_CONFIDENCE}
 
@@ -74,8 +82,11 @@ class RoomState:
         family: frozenset[str],
         stale_seconds: float = 3.0,
         clock: Callable[[], float] = time.monotonic,
+        radar: RadarInput | None = None,
     ):
         self.family = family
+        self.radar = radar
+        self._fusion = SingleRoomFusion()
         self.stale_seconds = stale_seconds
         self._clock = clock
         self._lock = threading.Lock()
@@ -101,4 +112,12 @@ class RoomState:
             camera = self._camera if now - self._camera_at <= self.stale_seconds else None
             audio = self._audio if now - self._audio_at <= self.stale_seconds else None
         persons, light = camera if camera is not None else (None, Light.UNKNOWN)
-        return build_snapshot(persons, light, audio, self.family)
+        summary = self.radar.summary() if self.radar is not None else None
+        if summary is None or not (summary.ld2410_available or summary.ld2450_available):
+            return build_snapshot(persons, light, audio, self.family)  # 레이더 없음 → 카메라만
+        with self._lock:
+            fused = self._fusion.fuse(persons, light, summary, now)
+        return RoomSnapshot.model_validate(
+            fused | {"audio": (audio or UNKNOWN_AUDIO).model_dump(), "light": light},
+            context={"family": self.family},
+        )
