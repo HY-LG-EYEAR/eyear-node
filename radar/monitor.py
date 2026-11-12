@@ -15,8 +15,9 @@ import threading
 import time
 from pathlib import Path
 
+from radar.config import load_radar_config
 from radar.ld2410c import Ld2410Report, Ld2410StreamParser
-from radar.ld2450 import Ld2450StreamParser, Ld2450Target
+from radar.ld2450 import Ld2450StreamParser, Ld2450Target, within_range
 from radar.source import MockSource, SerialSource, list_ports
 
 
@@ -76,8 +77,8 @@ class RadarState:
 def main() -> None:
     parser = argparse.ArgumentParser(description="레이더 실시간 확인")
     parser.add_argument("--list", action="store_true", help="시리얼 포트 목록")
-    parser.add_argument("--ld2450", metavar="PORT")
-    parser.add_argument("--ld2410c", metavar="PORT")
+    parser.add_argument("--ld2450", metavar="PORT", help="없으면 config/radar.yaml의 포트")
+    parser.add_argument("--ld2410c", metavar="PORT", help="없으면 config/radar.yaml의 포트")
     parser.add_argument("--mock", action="store_true", help="실물 대신 가짜 바이트 (두 레이더 모두)")
     parser.add_argument("--log", metavar="PATH", help="모든 프레임을 JSONL로 기록")
     args = parser.parse_args()
@@ -90,9 +91,11 @@ def main() -> None:
     state = RadarState(args.log)
     p2450, p2410 = Ld2450StreamParser(), Ld2410StreamParser()
 
+    max_range = None if args.mock else load_radar_config().ld2450.max_range_m
+
     def feed_2450(data: bytes) -> None:
         for targets in p2450.feed(data):
-            state.on_ld2450(targets)
+            state.on_ld2450(within_range(targets, max_range))
 
     def feed_2410(data: bytes) -> None:
         for report in p2410.feed(data):
@@ -101,12 +104,16 @@ def main() -> None:
     sources = []
     if args.mock:
         sources = [MockSource("ld2450", feed_2450), MockSource("ld2410c", feed_2410)]
-    if args.ld2450:
-        sources.append(SerialSource(args.ld2450, feed_2450))
-    if args.ld2410c:
-        sources.append(SerialSource(args.ld2410c, feed_2410))
+    if not args.mock:
+        cfg = load_radar_config()
+        for port, sensor, feed in ((args.ld2450, cfg.ld2450, feed_2450), (args.ld2410c, cfg.ld2410c, feed_2410)):
+            port = port or sensor.port
+            if port and Path(port).exists():
+                sources.append(SerialSource(port, feed, sensor.baud))
+            elif port:
+                print(f"포트 없음 (연결 안 됨?): {port}")
     if not sources:
-        parser.error("--ld2450 / --ld2410c 포트나 --mock 중 하나는 필요 (포트 목록: --list)")
+        parser.error("연결된 레이더 포트가 없음 (포트 목록: --list, 설정: config/radar.yaml)")
 
     for s in sources:
         s.start()

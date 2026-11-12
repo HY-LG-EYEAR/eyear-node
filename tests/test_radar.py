@@ -74,3 +74,27 @@ def test_mock_sources_produce_parseable_frames():
     assert ld2450.parse_frame(m2450.frame_at(20)) == []                # 가만히 누워 놓침 (가정)
     [r] = Ld2410StreamParser().feed(m2410.frame_at(20))
     assert r.state == TargetState.STATIONARY                           # LD2410C는 정지한 사람도 잡음
+
+
+def test_ld2410_config_commands_match_doc_examples():
+    """LD2410C 공식 문서 2.2.1·2.2.2·2.2.3의 보내는 바이트 예시와 같은지."""
+    from radar.ld2410c_config import build_command, find_ack, max_gate_value, parse_params
+
+    assert build_command(0x00FF, bytes.fromhex("0100")) == bytes.fromhex("FD FC FB FA 04 00 FF 00 01 00 04 03 02 01")
+    assert build_command(0x00FE) == bytes.fromhex("FD FC FB FA 02 00 FE 00 04 03 02 01")
+    assert build_command(0x0060, max_gate_value(8, 8, 5)) == bytes.fromhex(
+        "FD FC FB FA 14 00 60 00 00 00 08 00 00 00 01 00 08 00 00 00 02 00 05 00 00 00 04 03 02 01")
+    # 문서의 ACK 예시
+    assert find_ack(bytes.fromhex("FD FC FB FA 04 00 60 01 00 00 04 03 02 01"), 0x0060) == b"\x00\x00"
+    ack = bytes.fromhex("FD FC FB FA 1C 00 61 01 00 00 AA 08 08 08" + " 14" * 9 + " 19" * 9 + " 05 00 04 03 02 01")
+    p = parse_params(find_ack(ack, 0x0061))
+    assert (p["max_gate"], p["move_max_gate"], p["no_one_seconds"]) == (8, 8, 5)
+    assert p["move_sensitivity"] == [20] * 9 and p["still_sensitivity"] == [25] * 9
+
+
+def test_within_range_drops_far_targets():
+    from radar.ld2450 import within_range
+
+    near, far = Ld2450Target(-740, 510, 0, 320), Ld2450Target(1000, 3500, 0, 320)
+    assert within_range([near, far], 3.0) == [near]
+    assert within_range([near, far], None) == [near, far]

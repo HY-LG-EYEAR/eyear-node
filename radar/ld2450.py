@@ -90,3 +90,11 @@ class Ld2450StreamParser:
             else:
                 self.bad_frames += 1
                 del self._buf[: start + 1]  # 가짜 헤더였음 → 다음 위치부터 다시 찾기
+
+
+def within_range(targets: list[Ld2450Target], max_range_m: float | None) -> list[Ld2450Target]:
+    """레이더에서 max_range_m보다 먼 대상을 버린다 (방 밖·옆방 오감지 줄이기)."""
+    if max_range_m is None:
+        return targets
+    limit = (max_range_m * 1000) ** 2
+    return [t for t in targets if t.x_mm ** 2 + t.y_mm ** 2 <= limit]
