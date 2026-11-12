@@ -6,8 +6,10 @@
           LD2450 혼자만 보이는 대상(LD2410C 없음)도 무시 (두 레이더 간섭으로 가끔 가짜 대상)
     유지: 카메라·LD2450·LD2410C 중 하나라도 사람 있음 (어둠 속 수면, 이불 → LD2410C로 유지)
     끝:   ① LD2410C까지 모두 없음, 또는
-          ② LD2450이 움직이던(ACTIVE) 사람을 놓치고 EXIT_SECONDS 동안 다시 못 봄 = 걸어 나감
-             (LD2410C가 아직 "있음"이어도: 레이더 뒤쪽 사람일 수 있음)
+          ② 카메라·LD2450이 움직이던(ACTIVE·WALKING) 사람을 둘 다 놓치고 EXIT_SECONDS 동안 다시 못 봄 = 걸어 나감
+             (LD2410C가 아직 "있음"이어도: 레이더 뒤쪽 사람일 수 있음. 2026-11-12 실측: 카메라에만 보이던 사람이
+              레이더 뒤로 걸어간 뒤 LD2410C 뒤쪽 감지로 계속 "있음"이었음 → 카메라로 본 마지막 순간도 같이 봄)
+             가만히·조금 움직이던 중 사라지면(누움, 이불, 소등) 나감이 아님 → LD2410C로 유지
     신뢰도: 카메라+LD2410C 0.95 / 레이더로 유지 0.8~0.85 / 카메라만 0.8 / 비어 있음 0.9
             LD2410C만 "있음"인데 시작 조건이 안 됨(뒤쪽일 수 있음) → EMPTY 0.6 / 걸어 나감 → EMPTY 0.85
     LD2410C 연결 안 됨 → LD2450 0.6 / 밝은데 카메라·LD2450 모두 없음 EMPTY 0.7 / 그 밖 UNKNOWN
@@ -50,8 +52,8 @@ class SingleRoomFusion:
         self._carried: _Carried | None = None
         self._active_since: float | None = None
         self._emitted = False  # 이번 재실 중 사람을 한 번이라도 보냄
-        self._target_at: float | None = None   # LD2450이 마지막으로 앞에서 사람을 본 시각
-        self._target_moving = False             # 그때 움직이고 있었는지 (ACTIVE)
+        self._seen_at: float | None = None     # 카메라나 LD2450이 마지막으로 사람을 본 시각
+        self._seen_moving = False               # 그때 움직이고 있었는지 (레이더 ACTIVE 또는 카메라 WALKING)
         self._walked_out = False                # 걸어 나감을 확인한 뒤 아직 아무도 다시 안 들어옴
 
     def fuse(self, camera: list[VisionPerson] | None, light: Light, radar: RadarSummary, now: float) -> dict:
@@ -60,20 +62,21 @@ class SingleRoomFusion:
         r10 = radar.ld2410_present if radar.ld2410_available else None
         r50 = radar.ld2450_target if radar.ld2450_available else None
 
-        if r50:
-            self._target_at, self._target_moving = now, radar.motion == Motion.ACTIVE
+        if cam_seen or r50:
+            walking = cam_seen and any(p.posture == "WALKING" for p in camera)
+            self._seen_at, self._seen_moving = now, radar.motion == Motion.ACTIVE or walking
         occupancy = self._occupancy(cam_seen, camera is not None, light, r10, r50)
         if occupancy["state"] == "OCCUPIED" and not self._present and not cam_seen and r10 is not None:
             if not (r50 and r10):
                 # LD2410C 혼자: 레이더 뒤쪽일 수 있어 시작 안 함 (걸어 나감을 확인한 뒤라면 더 확실히 비어 있음)
                 occupancy = {"state": "EMPTY", "confidence": 0.85 if self._walked_out else 0.6}
         elif occupancy["state"] == "OCCUPIED" and self._present and not cam_seen and not r50 \
-                and self._target_moving and self._target_at is not None and now - self._target_at >= EXIT_SECONDS:
+                and self._seen_moving and self._seen_at is not None and now - self._seen_at >= EXIT_SECONDS:
             occupancy = {"state": "EMPTY", "confidence": 0.85}  # 걸어 나감 (LD2410C "있음"은 뒤쪽일 수 있음)
             self._walked_out = True
         if occupancy["state"] != "OCCUPIED":
             self._present, self._carried, self._active_since, self._emitted = False, None, None, False
-            self._target_at, self._target_moving = None, False
+            self._seen_at, self._seen_moving = None, False
             return {"occupancy": occupancy, "persons": []}
 
         if not self._present:  # 새로 들어온 사람

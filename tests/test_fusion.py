@@ -191,3 +191,20 @@ def test_motion_thresholds_from_measurement():
     fast = [Ld2450Target(500, 2000, 40, 320)]  # 걷기 속도 40cm/s
     snap = room.run(4, camera=[person(posture="STANDING")], r10=TargetState.MOVING, move_e=20, targets=fast)
     assert snap.persons[0].motion == "ACTIVE"
+
+
+def test_person_seen_only_by_camera_walking_behind_radar_is_left():
+    """2026-11-12 실측: 카메라에만 잠깐 보이던 사람이 움직여 레이더 뒤로 감 → LD2410C 뒤쪽 감지로 "있음"이 남아도 5초 뒤 EMPTY."""
+    room = Room()
+    room.run(2, camera=[person(posture="STANDING")], r10=TargetState.MOVING, move_e=90)  # LD2450은 못 봄
+    snap = room.run(3, r10=TargetState.STATIONARY, move_e=20)
+    assert snap.occupancy.state == "OCCUPIED"  # 아직 5초 안 됨 (TRACK_CARRIED)
+    snap = room.run(4, r10=TargetState.STATIONARY, move_e=20)
+    assert (snap.occupancy.state, snap.persons) == ("EMPTY", [])
+
+
+def test_lights_off_while_still_is_not_left_even_after_long_time():
+    room = Room()
+    room.run(4, camera=[person(posture="SITTING")], r10=TargetState.STATIONARY, move_e=5)  # 가만히 앉음 (LD2450 못 봄)
+    snap = room.run(60, light=Light.DARK, r10=TargetState.STATIONARY, move_e=5)
+    assert snap.occupancy.state == "OCCUPIED" and snap.persons[0].identity_source == "TRACK_CARRIED"
