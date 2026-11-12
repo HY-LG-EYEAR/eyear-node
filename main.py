@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--no-camera", action="store_true")
     parser.add_argument("--no-audio", action="store_true", help="마이크·스피커를 쓰지 않음 (소리 분류, 음성 대화 모두 끔)")
     parser.add_argument("--no-radar", action="store_true", help="레이더를 쓰지 않음 (포트·설정은 config/radar.yaml)")
+    parser.add_argument("--radar-log", metavar="PATH", help="진단용: 레이더 원본 값(LD2450 대상, LD2410C 상태)을 JSONL로 기록")
     parser.add_argument("--no-window", action="store_true")
     parser.add_argument("--no-resting", action="store_true", help="휴식 판단(MobileCLIP) 끔 → 누움은 activity UNKNOWN")
     parser.add_argument("--source", default=None, help="카메라 번호 또는 동영상 파일 (기본: config/vision.yaml)")
@@ -69,7 +70,7 @@ def main() -> None:
         sinks.append(mqtt)
     sink = MultiSink(sinks)
     closers = []
-    radar = None if args.no_radar else start_radar(closers)
+    radar = None if args.no_radar else start_radar(closers, args.radar_log)
     room = RoomState(family, radar=radar)
     builder = EventBuilder(f"node_{args.room}", args.room, family, args.heartbeat)
 
@@ -122,9 +123,10 @@ def main() -> None:
         sink.close()
 
 
-def start_radar(closers: list) -> RadarInput | None:
+def start_radar(closers: list, log_path: str | None = None) -> RadarInput | None:
     """config/radar.yaml의 포트로 두 레이더를 연다. 연결된 게 없으면 None (레이더 없이 동작)."""
-    from pathlib import Path
+    import json
+    from datetime import datetime
 
     from radar.config import load_radar_config
     from radar.ld2410c import Ld2410StreamParser
@@ -134,14 +136,24 @@ def start_radar(closers: list) -> RadarInput | None:
     cfg = load_radar_config()
     radar = RadarInput(cfg)
     p50, p10 = Ld2450StreamParser(), Ld2410StreamParser()
+    log = open(log_path, "w") if log_path else None
+    if log:
+        closers.append(log.close)
+
+    def write(rec: dict) -> None:
+        if log:
+            log.write(json.dumps({"at": datetime.now().astimezone().isoformat(), **rec}) + "\n")
 
     def feed_50(b: bytes) -> None:
         for targets in p50.feed(b):
             radar.on_ld2450(targets)
+            write({"s": "ld2450", "targets": [[t.x_mm, t.y_mm, t.speed_cms] for t in targets]})
 
     def feed_10(b: bytes) -> None:
         for report in p10.feed(b):
             radar.on_ld2410(report)
+            write({"s": "ld2410c", "state": report.state.name, "me": report.moving_energy,
+                   "se": report.stationary_energy, "sd": report.stationary_distance_cm})
 
     opened = []
     for name, sensor, feed in (("LD2450", cfg.ld2450, feed_50), ("LD2410C", cfg.ld2410c, feed_10)):
