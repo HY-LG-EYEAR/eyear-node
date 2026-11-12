@@ -1,12 +1,16 @@
 """카메라 + 레이더 융합 (방1, 1인 방). 판단 규칙은 2026-11-12 사용자 확정.
 
-재실 (occupancy):
-    카메라와 LD2410C 둘 다 사람        → OCCUPIED 0.95
-    LD2410C만 (이불·어둠·카메라 밖)   → OCCUPIED 0.8 (LD2450도 보이면 0.85)   ← 레이더 우선
-    카메라만 (LD2410C는 없음)          → OCCUPIED 0.8
-    LD2410C 없음 + 카메라도 못 봄      → EMPTY 0.9   ← LD2450 혼자만 보이는 대상은 무시
-                                          (2026-11-12 실측: 두 레이더 간섭으로 LD2450에 가끔 가짜 대상)
-    LD2410C 연결 안 됨                 → LD2450 0.6 / 밝은데 카메라·LD2450 모두 없음 EMPTY 0.7 / 그 밖 UNKNOWN
+재실 (occupancy) — 시작·유지·끝을 나눈다 (2026-11-12 사용자 확정):
+    LD2410C는 레이더 뒤쪽(벽 너머 거실 등) 사람도 잡고 방향을 모름. LD2450은 앞만 봄 (실측: 뒤쪽 0%, 앞의 누운 사람 100%)
+    시작: 카메라가 보거나, LD2450이 앞에서 보고 LD2410C도 사람 있음 (LD2410C 혼자로는 시작 안 함 → 뒤쪽 무시)
+          LD2450 혼자만 보이는 대상(LD2410C 없음)도 무시 (두 레이더 간섭으로 가끔 가짜 대상)
+    유지: 카메라·LD2450·LD2410C 중 하나라도 사람 있음 (어둠 속 수면, 이불 → LD2410C로 유지)
+    끝:   ① LD2410C까지 모두 없음, 또는
+          ② LD2450이 움직이던(ACTIVE) 사람을 놓치고 EXIT_SECONDS 동안 다시 못 봄 = 걸어 나감
+             (LD2410C가 아직 "있음"이어도: 레이더 뒤쪽 사람일 수 있음)
+    신뢰도: 카메라+LD2410C 0.95 / 레이더로 유지 0.8~0.85 / 카메라만 0.8 / 비어 있음 0.9
+            LD2410C만 "있음"인데 시작 조건이 안 됨(뒤쪽일 수 있음) → EMPTY 0.6 / 걸어 나감 → EMPTY 0.85
+    LD2410C 연결 안 됨 → LD2450 0.6 / 밝은데 카메라·LD2450 모두 없음 EMPTY 0.7 / 그 밖 UNKNOWN
 
 사람 (1인 방):
     - 번호는 이 클래스가 정함. 방이 EMPTY가 됐다가 다시 사람이 생기면 새 번호 (나갔다 들어온 것)
@@ -28,6 +32,7 @@ from vision.tracker import VisionPerson
 CARRIED_IDENTITY_FACTOR = 0.8
 CARRIED_ACTIVITY_FACTOR = 0.8
 ACTIVE_EXIT_SECONDS = 3.0
+EXIT_SECONDS = 5.0  # 움직이던 사람을 LD2450이 놓친 뒤 이 시간 동안 못 보면 "나감"
 
 
 @dataclass
@@ -45,6 +50,9 @@ class SingleRoomFusion:
         self._carried: _Carried | None = None
         self._active_since: float | None = None
         self._emitted = False  # 이번 재실 중 사람을 한 번이라도 보냄
+        self._target_at: float | None = None   # LD2450이 마지막으로 앞에서 사람을 본 시각
+        self._target_moving = False             # 그때 움직이고 있었는지 (ACTIVE)
+        self._walked_out = False                # 걸어 나감을 확인한 뒤 아직 아무도 다시 안 들어옴
 
     def fuse(self, camera: list[VisionPerson] | None, light: Light, radar: RadarSummary, now: float) -> dict:
         """RoomSnapshot의 occupancy·persons 부분 (dict)."""
@@ -52,13 +60,24 @@ class SingleRoomFusion:
         r10 = radar.ld2410_present if radar.ld2410_available else None
         r50 = radar.ld2450_target if radar.ld2450_available else None
 
+        if r50:
+            self._target_at, self._target_moving = now, radar.motion == Motion.ACTIVE
         occupancy = self._occupancy(cam_seen, camera is not None, light, r10, r50)
+        if occupancy["state"] == "OCCUPIED" and not self._present and not cam_seen and r10 is not None:
+            if not (r50 and r10):
+                # LD2410C 혼자: 레이더 뒤쪽일 수 있어 시작 안 함 (걸어 나감을 확인한 뒤라면 더 확실히 비어 있음)
+                occupancy = {"state": "EMPTY", "confidence": 0.85 if self._walked_out else 0.6}
+        elif occupancy["state"] == "OCCUPIED" and self._present and not cam_seen and not r50 \
+                and self._target_moving and self._target_at is not None and now - self._target_at >= EXIT_SECONDS:
+            occupancy = {"state": "EMPTY", "confidence": 0.85}  # 걸어 나감 (LD2410C "있음"은 뒤쪽일 수 있음)
+            self._walked_out = True
         if occupancy["state"] != "OCCUPIED":
             self._present, self._carried, self._active_since, self._emitted = False, None, None, False
+            self._target_at, self._target_moving = None, False
             return {"occupancy": occupancy, "persons": []}
 
         if not self._present:  # 새로 들어온 사람
-            self._present, self._carried = True, None
+            self._present, self._carried, self._walked_out = True, None, False
             self._id += 1
         self._active_since = (self._active_since or now) if radar.motion == Motion.ACTIVE else None
         position = None if radar.position is None else {"x": radar.position[0], "y": radar.position[1]}

@@ -84,8 +84,8 @@ def test_empty_room_and_ld2450_only_ghost_is_ignored():
 def test_wall_target_outside_room_is_dropped():
     room = Room()
     snap = room.run(1, r10=TargetState.STATIONARY, targets=[Ld2450Target(-2500, 1000, 0, 320)])  # x=3.5m: 옆벽(3.0m) 너머
-    assert snap.persons == []  # LD2410C로 재실은 있지만 위치를 아는 사람은 없음
-    assert snap.occupancy.state == "OCCUPIED"
+    assert snap.persons == []
+    assert (snap.occupancy.state, snap.occupancy.confidence) == ("EMPTY", 0.6)  # 방 안에서 본 사람이 없으니 시작 안 함
 
 
 def test_scenario_bright_rest_lights_off_get_up_and_leave():
@@ -135,10 +135,32 @@ def test_entering_dark_room_identity_unknown():
     assert (p2.track_id, p2.identity, p2.position) == (p.track_id, "UNKNOWN", None)
 
 
-def test_presence_without_any_person_seen_yet_has_no_person():
+def test_ld2410c_alone_does_not_start_occupancy_back_lobe():
+    """레이더 뒤쪽(벽 너머 거실) 사람: LD2410C만 "있음", LD2450·카메라는 못 봄 → 시작하지 않음 (2026-11-12 실측)."""
     room = Room()
-    snap = room.run(2, light=Light.DARK, r10=TargetState.STATIONARY)  # 위치도 신원도 본 적 없음
-    assert (snap.occupancy.state, snap.persons) == ("OCCUPIED", [])
+    snap = room.run(10, r10=TargetState.STATIONARY, move_e=0)
+    assert (snap.occupancy.state, snap.occupancy.confidence, snap.persons) == ("EMPTY", 0.6, [])
+
+
+def test_walking_out_is_empty_even_if_ld2410c_still_present():
+    """걸어 나감: LD2450이 움직이던 사람을 놓치고 5초 → EMPTY. 레이더 뒤 사람 때문에 LD2410C가 계속 "있음"이어도."""
+    room = Room()
+    room.run(3, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=90,
+             targets=[Ld2450Target(-800, 1500, 40, 320)])
+    snap = room.run(4, r10=TargetState.STATIONARY)   # 나간 직후 (아직 5초 안 됨)
+    assert snap.occupancy.state == "OCCUPIED"
+    snap = room.run(4, r10=TargetState.STATIONARY)   # 놓친 뒤 "최근 1초" + 5초가 지남 (실제로는 나간 뒤 6~7초)
+    assert (snap.occupancy.state, snap.occupancy.confidence, snap.persons) == ("EMPTY", 0.85, [])
+    snap = room.run(5, r10=TargetState.STATIONARY)   # 뒤쪽 사람만 남음 → 다시 시작하지 않음
+    assert snap.occupancy.state == "EMPTY"
+
+
+def test_still_person_lost_by_ld2450_is_kept_by_ld2410c():
+    """가만히 누운 사람을 LD2450이 놓쳐도(움직이지 않던 중) 나감이 아님 → LD2410C로 유지."""
+    room = Room()
+    room.run(4, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, targets=BED)
+    snap = room.run(30, light=Light.DARK, r10=TargetState.STATIONARY)
+    assert snap.occupancy.state == "OCCUPIED" and snap.persons[0].activity == "RESTING"
 
 
 def test_entering_does_not_flicker_entered_left_entered():
