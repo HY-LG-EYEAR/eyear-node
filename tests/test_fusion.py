@@ -130,8 +130,25 @@ def test_entering_dark_room_identity_unknown():
     snap = room.run(2, light=Light.DARK, r10=TargetState.MOVING, move_e=80, targets=BED)
     [p] = snap.persons
     assert (p.identity, p.identity_source, p.posture, p.motion) == ("UNKNOWN", "UNKNOWN", "UNKNOWN", "ACTIVE")
-    snap = room.run(2, light=Light.DARK, r10=TargetState.STATIONARY)  # 위치도 놓침
+    snap = room.run(2, light=Light.DARK, r10=TargetState.STATIONARY)  # 위치를 놓쳐도 같은 사람으로 유지
+    [p2] = snap.persons
+    assert (p2.track_id, p2.identity, p2.position) == (p.track_id, "UNKNOWN", None)
+
+
+def test_presence_without_any_person_seen_yet_has_no_person():
+    room = Room()
+    snap = room.run(2, light=Light.DARK, r10=TargetState.STATIONARY)  # 위치도 신원도 본 적 없음
     assert (snap.occupancy.state, snap.persons) == ("OCCUPIED", [])
+
+
+def test_entering_does_not_flicker_entered_left_entered():
+    """레이더가 먼저 잡고 → 잠깐 놓치고 → 카메라가 잡아도 같은 사람 하나로 이어짐."""
+    room = Room()
+    ids = []
+    for kw in (dict(targets=BED), dict(), dict(camera=[person(posture="STANDING")])):
+        snap = room.run(1, r10=TargetState.MOVING, move_e=80, **kw)
+        ids.append([p.track_id for p in snap.persons])
+    assert ids == [[1], [1], [1]]
 
 
 def test_stale_radar_falls_back_to_camera_only():

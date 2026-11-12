@@ -15,6 +15,8 @@
         이번 재실 중 카메라로 본 적 있으면 이어감 — 신원은 TRACK_CARRIED(신뢰도 낮춤), 자세 UNKNOWN(지어내지 않음),
         RESTING은 움직임이 ACTIVE로 active_exit_seconds 이상 이어지기 전까지 유지 (일어났을 수 있음 → UNKNOWN)
         본 적 없으면 (어두운 방에 들어옴): LD2450 대상이 있을 때만 신원 UNKNOWN인 사람, 없으면 persons [] (위치 모름)
+    - 한 번 사람을 보낸 뒤에는 방이 EMPTY가 될 때까지 계속 같은 사람으로 보낸다 (위치·신원은 모르면 null·UNKNOWN).
+      (2026-11-12 실측: 들어올 때 레이더가 먼저 잡고 잠깐 놓친 뒤 카메라가 잡아 PERSON_ENTERED → LEFT → ENTERED가 3초 안에 나감)
 """
 
 from dataclasses import dataclass
@@ -42,6 +44,7 @@ class SingleRoomFusion:
         self._present = False
         self._carried: _Carried | None = None
         self._active_since: float | None = None
+        self._emitted = False  # 이번 재실 중 사람을 한 번이라도 보냄
 
     def fuse(self, camera: list[VisionPerson] | None, light: Light, radar: RadarSummary, now: float) -> dict:
         """RoomSnapshot의 occupancy·persons 부분 (dict)."""
@@ -51,7 +54,7 @@ class SingleRoomFusion:
 
         occupancy = self._occupancy(cam_seen, camera is not None, light, r10, r50)
         if occupancy["state"] != "OCCUPIED":
-            self._present, self._carried, self._active_since = False, None, None
+            self._present, self._carried, self._active_since, self._emitted = False, None, None, False
             return {"occupancy": occupancy, "persons": []}
 
         if not self._present:  # 새로 들어온 사람
@@ -92,7 +95,7 @@ class SingleRoomFusion:
                 "activity": "RESTING" if keep_rest else "UNKNOWN",
                 "activity_confidence": round(c.activity_confidence * CARRIED_ACTIVITY_FACTOR, 3) if keep_rest else 0.0,
             }
-        elif radar.ld2450_target:
+        elif radar.ld2450_target or self._emitted:
             person = {
                 "identity": IDENTITY_UNKNOWN, "identity_confidence": 0.0, "identity_source": "UNKNOWN",
                 "posture": "UNKNOWN", "posture_confidence": 0.0,
@@ -101,6 +104,7 @@ class SingleRoomFusion:
         else:
             return {"occupancy": occupancy, "persons": []}  # 사람은 있는데 위치·신원 모름
 
+        self._emitted = True
         person |= {"track_id": self._id, "motion": radar.motion, "position": position}
         return {"occupancy": occupancy, "persons": [person]}
 

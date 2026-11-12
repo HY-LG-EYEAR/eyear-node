@@ -104,7 +104,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_radar_config().ld2410c
-    radar = Ld2410Config(cfg.port, cfg.baud)
+    port = cfg.resolve_port()
+    if not port:
+        raise SystemExit(f"LD2410C 포트 없음 ({cfg.port}, {cfg.adapter})")
+    radar = Ld2410Config(port, cfg.baud)
     try:
         def run(r: Ld2410Config):
             before = r.read_params()

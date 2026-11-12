@@ -107,11 +107,11 @@ def main() -> None:
     if not args.mock:
         cfg = load_radar_config()
         for port, sensor, feed in ((args.ld2450, cfg.ld2450, feed_2450), (args.ld2410c, cfg.ld2410c, feed_2410)):
-            port = port or sensor.port
+            port = port or sensor.resolve_port()
             if port and Path(port).exists():
                 sources.append(SerialSource(port, feed, sensor.baud))
-            elif port:
-                print(f"포트 없음 (연결 안 됨?): {port}")
+            else:
+                print(f"포트 없음 (연결 안 됨?): {port or sensor.port}")
     if not sources:
         parser.error("연결된 레이더 포트가 없음 (포트 목록: --list, 설정: config/radar.yaml)")
 

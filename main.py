@@ -145,8 +145,9 @@ def start_radar(closers: list) -> RadarInput | None:
 
     opened = []
     for name, sensor, feed in (("LD2450", cfg.ld2450, feed_50), ("LD2410C", cfg.ld2410c, feed_10)):
-        if sensor.port and Path(sensor.port).exists():
-            source = SerialSource(sensor.port, feed, sensor.baud).start()
+        port = sensor.resolve_port()
+        if port:
+            source = SerialSource(port, feed, sensor.baud).start()
             closers.append(source.close)
             opened.append(name)
         else:
