@@ -49,7 +49,7 @@ Node ──("하이 엘지" 뒤 발화 텍스트)────────▶ eye
       "motion": "SLIGHT",
       "activity": "RESTING",
       "activity_confidence": 0.80,
-      "position": { "x": 2.6, "y": 3.1 }
+      "position": { "x": 2.40, "y": 2.67 }
     }
   ],
   "audio": { "context": "SILENT", "confidence": 0.80 },

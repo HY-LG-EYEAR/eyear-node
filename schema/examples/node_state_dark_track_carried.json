@@ -14,11 +14,15 @@
     {
       "type": "IDENTITY_CHANGED",
       "track_id": 1
+    },
+    {
+      "type": "POSTURE_CHANGED",
+      "track_id": 1
     }
   ],
   "occupancy": {
     "state": "OCCUPIED",
-    "confidence": 0.93
+    "confidence": 0.85
   },
   "persons": [
     {
@@ -26,14 +30,14 @@
       "identity": "MEMBER_A",
       "identity_confidence": 0.75,
       "identity_source": "TRACK_CARRIED",
-      "posture": "LYING",
-      "posture_confidence": 0.6,
+      "posture": "UNKNOWN",
+      "posture_confidence": 0.0,
       "motion": "STILL",
       "activity": "RESTING",
       "activity_confidence": 0.7,
       "position": {
-        "x": 2.6,
-        "y": 3.1
+        "x": 2.4,
+        "y": 2.67
       }
     }
   ],

@@ -34,7 +34,7 @@ def test_scenario_produces_expected_changes():
     assert changes["t1"] == {"room1": [("PERSON_ENTERED", 1), ("OCCUPANCY_CHANGED", None)]}
     assert changes["t2"] == {"room1": [("POSTURE_CHANGED", 1), ("ACTIVITY_CHANGED", 1)]}
     assert changes["t3"] == {}
-    assert changes["t4"] == {"room1": [("IDENTITY_CHANGED", 1), ("LIGHT_CHANGED", None)]}
+    assert changes["t4"] == {"room1": [("IDENTITY_CHANGED", 1), ("POSTURE_CHANGED", 1), ("LIGHT_CHANGED", None)]}  # 어둠 속 자세 UNKNOWN
     assert changes["t5-1"] == {"room1": [("AUDIO_CHANGED", None)]}
     assert changes["t5-2"] == {"room1": [
         ("IDENTITY_CHANGED", 1), ("POSTURE_CHANGED", 1), ("ACTIVITY_CHANGED", 1),

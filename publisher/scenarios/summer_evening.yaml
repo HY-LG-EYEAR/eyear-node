@@ -2,7 +2,11 @@
 #
 # - 단계마다 바뀌는 방만 적는다. 적지 않은 방은 이전 단계 상태를 그대로 유지(heartbeat는 계속 나감).
 # - changes는 적지 않는다. 송신기가 이전 상태와 비교해 자동으로 만든다.
-# - 좌표는 방 기준 미터. 원점·축 방향은 팀원2와 합의 전 임시값 (방1: 문 쪽 모서리가 원점, 침대는 안쪽).
+# - 좌표 (2026-11-12 확정, docs/schema_v0.md "좌표 기준"): 평면도를 위에서 본 2D, 미터.
+#   원점 = 평면도에서 각 방의 왼쪽 아래 모서리, x = 오른쪽, y = 위쪽.
+#   기준 평면도: 시나리오 시뮬레이션 (https://claude.ai/artifact/N7WDEP7PSUu17tnZa6hFd6, 그림 100칸 = 1m)
+#   방 크기: 방1 4.2 × 3.4m, 거실 7.1 × 9.1m, 방2 6.2 × 4.95m, 세탁실 4.2 × 1.5m
+#   주요 위치: 방1 침대 (2.40, 2.67), 거실 소파 위쪽 자리 (0.60, 4.90), 아래쪽 자리 (0.60, 2.40)
 # - track_id는 Node마다 따로 매긴다 (거실에서 B=1, A=2).
 # - 실물 Node는 방1뿐이고 나머지 방은 같은 Node가 있다고 가정한 가짜 데이터.
 
@@ -30,7 +34,7 @@ _templates:
     motion: SLIGHT
     activity: OTHER
     activity_confidence: 0.85
-    position: { x: 2.0, y: 3.0 }   # 소파 위쪽 자리
+    position: { x: 0.60, y: 4.90 }   # 소파 위쪽 자리
 
 steps:
   - id: t0
@@ -70,7 +74,7 @@ steps:
             motion: ACTIVE
             activity: OTHER
             activity_confidence: 0.85
-            position: { x: 1.0, y: 0.8 }
+            position: { x: 1.40, y: 1.25 }   # 문으로 들어와 선 자리
         audio: { context: SILENT, confidence: 0.80 }
         light: BRIGHT
 
@@ -90,7 +94,7 @@ steps:
             motion: SLIGHT
             activity: RESTING
             activity_confidence: 0.80
-            position: { x: 2.6, y: 3.1 }   # 침대
+            position: { x: 2.40, y: 2.67 }   # 침대
         audio: { context: SILENT, confidence: 0.80 }
         light: BRIGHT
 
@@ -112,12 +116,12 @@ steps:
             identity: MEMBER_A
             identity_confidence: 0.75      # 카메라로 확인할 수 없으므로 낮춤
             identity_source: TRACK_CARRIED
-            posture: LYING
-            posture_confidence: 0.60       # 어둠 속에서는 마지막 자세를 유지, 신뢰도 낮춤
+            posture: UNKNOWN               # 어둠 속에서는 자세를 볼 수 없음 → 지어내지 않음 (실제 Node와 같게)
+            posture_confidence: 0.0
             motion: STILL
             activity: RESTING
             activity_confidence: 0.70
-            position: { x: 2.6, y: 3.1 }
+            position: { x: 2.40, y: 2.67 }
         audio: { context: SILENT, confidence: 0.85 }
         light: DARK
 
@@ -134,12 +138,12 @@ steps:
             identity: MEMBER_A
             identity_confidence: 0.75
             identity_source: TRACK_CARRIED
-            posture: LYING
-            posture_confidence: 0.55
-            motion: ACTIVE                 # 레이더: 몸을 움직임
+            posture: UNKNOWN
+            posture_confidence: 0.0
+            motion: ACTIVE                 # 레이더: 몸을 움직임 (3초 넘게 이어지면 실제 Node는 RESTING → UNKNOWN)
             activity: RESTING
             activity_confidence: 0.55
-            position: { x: 2.6, y: 3.1 }
+            position: { x: 2.40, y: 2.67 }
         audio: { context: SPEECH, confidence: 0.78 }
         light: DARK
 
@@ -159,7 +163,7 @@ steps:
             motion: ACTIVE
             activity: OTHER
             activity_confidence: 0.85
-            position: { x: 2.4, y: 2.9 }
+            position: { x: 2.40, y: 2.55 }   # 침대에 앉음
         audio: { context: SILENT, confidence: 0.80 }
         light: BRIGHT
 
@@ -190,7 +194,7 @@ steps:
             motion: ACTIVE
             activity: OTHER
             activity_confidence: 0.85
-            position: { x: 0.8, y: 1.0 }
+            position: { x: 1.60, y: 3.00 }   # 소파로 걸어가는 중
         audio: { context: TV, confidence: 0.82 }
         light: BRIGHT
 
@@ -211,6 +215,6 @@ steps:
             motion: SLIGHT
             activity: OTHER
             activity_confidence: 0.85
-            position: { x: 2.0, y: 1.8 }   # 소파 아래쪽 자리
+            position: { x: 0.60, y: 2.40 }   # 소파 아래쪽 자리
         audio: { context: TV, confidence: 0.82 }
         light: BRIGHT

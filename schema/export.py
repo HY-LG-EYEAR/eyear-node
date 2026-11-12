@@ -55,7 +55,7 @@ def _person(**overrides) -> dict:
         "motion": "ACTIVE",
         "activity": "OTHER",
         "activity_confidence": 0.85,
-        "position": {"x": 1.0, "y": 0.8},
+        "position": {"x": 1.40, "y": 1.25},
     }
     return person | overrides
 
@@ -98,23 +98,24 @@ def example_messages() -> dict[str, BaseModel]:
             occupancy={"state": "OCCUPIED", "confidence": 0.97},
             persons=[_person(
                 posture="LYING", posture_confidence=0.84, motion="SLIGHT",
-                activity="RESTING", activity_confidence=0.80, position={"x": 2.6, "y": 3.1},
+                activity="RESTING", activity_confidence=0.80, position={"x": 2.40, "y": 2.67},
             )],
             **bright_room,
         )),
-        # t4: 소등 후 어두움 → 레이더로 신원 이어받기, 신뢰도 낮춤
+        # t4: 소등 후 어두움 → 레이더로 신원 이어받기, 신뢰도 낮춤. 자세는 볼 수 없어 UNKNOWN, RESTING은 유지
         "node_state_dark_track_carried": (NodeStateMessage, _state(
             3, 70,
             event_type="STATE_CHANGE",
             changes=[
                 {"type": "LIGHT_CHANGED"},
                 {"type": "IDENTITY_CHANGED", "track_id": 1},
+                {"type": "POSTURE_CHANGED", "track_id": 1},
             ],
-            occupancy={"state": "OCCUPIED", "confidence": 0.93},
+            occupancy={"state": "OCCUPIED", "confidence": 0.85},
             persons=[_person(
                 identity_confidence=0.75, identity_source="TRACK_CARRIED",
-                posture="LYING", posture_confidence=0.60, motion="STILL",
-                activity="RESTING", activity_confidence=0.70, position={"x": 2.6, "y": 3.1},
+                posture="UNKNOWN", posture_confidence=0.0, motion="STILL",
+                activity="RESTING", activity_confidence=0.70, position={"x": 2.40, "y": 2.67},
             )],
             audio={"context": "SILENT", "confidence": 0.85},
             light="DARK",
@@ -146,7 +147,7 @@ def example_messages() -> dict[str, BaseModel]:
             persons=[_person(
                 track_id=2, identity="UNKNOWN", identity_confidence=0.0, identity_source="UNKNOWN",
                 posture="UNKNOWN", posture_confidence=0.0, motion="ACTIVE",
-                activity="UNKNOWN", activity_confidence=0.0, position={"x": 0.6, "y": 0.4},
+                activity="UNKNOWN", activity_confidence=0.0, position={"x": 0.40, "y": 1.25},
             )],
             audio={"context": "SILENT", "confidence": 0.85},
             light="DARK",
