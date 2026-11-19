@@ -3,14 +3,18 @@
     python -m radar.view --ld2450 /dev/cu.usbserial-0001
     python -m radar.view --ld2450 PORT --ld2410c PORT2
     python -m radar.view --mock
+    python -m radar.view --log data/radar_test.jsonl    # 레이더 값 기록 (LD2410C 엔지니어링 모드면 칸별 에너지 포함)
 
 - 아래 가운데가 레이더, 위쪽이 레이더 정면. 원은 1m 간격, 회색 선은 감지 범위(좌우 ±60°, 최대 6m, 공식 문서)
 - 화면은 레이더 뒤에서 레이더가 보는 쪽을 내려다본 그림 (화면 오른쪽 = 레이더 기준 오른쪽).
   LD2450의 X 방향은 config/radar.yaml의 x_positive로 맞춘다 (2026-11-12 실측: X > 0 = 레이더 기준 왼쪽)
+- LD2410C 엔지니어링 모드(python -m radar.ld2410c_config --engineering on)면 오른쪽에 거리 칸(0.75m)별
+  움직임(주황)·정지(초록) 에너지 막대를 그린다
 창에서 q 또는 ESC로 종료.
 """
 
 import argparse
+import json
 import math
 import time
 from pathlib import Path
@@ -81,6 +85,24 @@ def draw_ld2410(img: np.ndarray, r) -> None:
         if r.state.name != "NONE" and dist > 0:
             rad = int(dist / 100 * PX_PER_M)
             cv2.ellipse(img, RADAR, (rad, rad), 0, 210, 330, c, 1)
+    if r.moving_gate_energy:
+        draw_gates(img, r, x0, y0 + 140, w)
+
+
+def draw_gates(img: np.ndarray, r, x0: int, y0: int, w: int) -> None:
+    """엔지니어링 모드: 거리 칸별 움직임·정지 에너지 (0~100). 칸 하나 = 0.75m."""
+    cv2.putText(img, "gate  move / still", (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (230, 230, 230), 1)
+    half = (w - 70) // 2
+    for i in range(max(len(r.moving_gate_energy), len(r.stationary_gate_energy))):
+        y = y0 + 10 + i * 20
+        cv2.putText(img, f"{i * 0.75:.2f}m", (x0, y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+        for k, gates in enumerate((r.moving_gate_energy, r.stationary_gate_energy)):
+            e = gates[i] if i < len(gates) else 0
+            bx = x0 + 52 + k * (half + 8)
+            cv2.rectangle(img, (bx, y + 2), (bx + half, y + 14), (70, 70, 70), -1)
+            cv2.rectangle(img, (bx, y + 2), (bx + int(half * min(e, 100) / 100), y + 14),
+                          (0, 160, 255) if k == 0 else (80, 200, 80), -1)
+            cv2.putText(img, str(e), (bx + 2, y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
 
 
 def main() -> None:
@@ -88,7 +110,13 @@ def main() -> None:
     parser.add_argument("--ld2450", metavar="PORT", help="없으면 config/radar.yaml의 포트")
     parser.add_argument("--ld2410c", metavar="PORT", help="없으면 config/radar.yaml의 포트")
     parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--log", metavar="PATH", help="레이더 값을 JSONL로 기록 (진단용, 의미 정보 아닌 원본 수치)")
     args = parser.parse_args()
+    log = open(args.log, "a") if args.log else None
+
+    def write(rec: dict) -> None:
+        if log:
+            log.write(json.dumps({"t": round(time.time(), 2), **rec}) + "\n")
 
     global X_SIGN
     X_SIGN = -1 if load_radar_config().ld2450.x_positive == "left" else 1
@@ -100,11 +128,16 @@ def main() -> None:
 
     def feed_50(b: bytes) -> None:
         for t in p50.feed(b):
-            state.on_ld2450(within_range(t, max_range))
+            t = within_range(t, max_range)
+            state.on_ld2450(t)
+            write({"s": "ld2450", "targets": [[x.x_mm, x.y_mm, x.speed_cms] for x in t]})
 
     def feed_10(b: bytes) -> None:
         for r in p10.feed(b):
             state.on_ld2410(r)
+            write({"s": "ld2410c", "state": r.state.name, "md": r.moving_distance_cm, "me": r.moving_energy,
+                   "sd": r.stationary_distance_cm, "se": r.stationary_energy,
+                   "mg": list(r.moving_gate_energy), "sg": list(r.stationary_gate_energy)})
 
     sources = [MockSource("ld2450", feed_50), MockSource("ld2410c", feed_10)] if args.mock else []
     if not args.mock:
@@ -156,6 +189,8 @@ def main() -> None:
     finally:
         for s in sources:
             s.close()
+        if log:
+            log.close()
         cv2.destroyAllWindows()
 
 

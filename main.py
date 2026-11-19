@@ -158,11 +158,18 @@ def start_radar(closers: list, log_path: str | None = None) -> RadarInput | None
         for report in p10.feed(b):
             radar.on_ld2410(report)
             write({"s": "ld2410c", "state": report.state.name, "me": report.moving_energy,
-                   "se": report.stationary_energy, "sd": report.stationary_distance_cm})
+                   "se": report.stationary_energy, "sd": report.stationary_distance_cm,
+                   "mg": list(report.moving_gate_energy), "sg": list(report.stationary_gate_energy)})
 
     opened = []
     for name, sensor, feed in (("LD2450", cfg.ld2450, feed_50), ("LD2410C", cfg.ld2410c, feed_10)):
         port = sensor.resolve_port()
+        if port and name == "LD2410C" and sensor.engineering:
+            from radar.ld2410c_config import set_engineering
+
+            ok = set_engineering(port, sensor.baud)
+            print("LD2410C 엔지니어링 모드 켬 (침대 칸 판단)" if ok else
+                  "LD2410C 엔지니어링 모드 켜기 실패 → 침대 칸 판단 없이 동작")
         if port:
             source = SerialSource(port, feed, sensor.baud).start()
             closers.append(source.close)

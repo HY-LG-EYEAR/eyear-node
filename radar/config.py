@@ -32,6 +32,7 @@ class SensorConfig:
     x_positive: str = "right"         # LD2450만: X > 0 이 레이더 기준 어느 쪽인지 (실측)
     max_range_m: float | None = None  # LD2450만: 이보다 먼 대상은 버림 (소프트웨어 필터)
     max_gate: int | None = None       # LD2410C만: 레이더 내부에 설정해 둔 최대 감지 거리 칸 (기록용, 0.75m 단위)
+    engineering: bool = False         # LD2410C만: Node가 켜질 때 엔지니어링 모드(거리 칸별 에너지)를 켬
 
     def resolve_port(self) -> str | None:
         """설정한 포트가 있으면 그것, 없으면 adapter 칩으로 찾은 포트."""
@@ -47,10 +48,16 @@ class InstallationConfig:
     facing_deg: float | None = None
     room_width_m: float | None = None
     room_depth_m: float | None = None
+    door_x: float | None = None       # 문 안쪽 위치 (방 좌표). 있으면 "나간 흔적"(방 안쪽에서 시작해 문 근처에서 사라진 움직임)을 봄
+    door_y: float | None = None
 
     @property
     def placed(self) -> bool:
         return None not in (self.radar_x, self.radar_y, self.facing_deg)
+
+    @property
+    def has_door(self) -> bool:
+        return self.placed and None not in (self.door_x, self.door_y)
 
     @property
     def has_room(self) -> bool:
@@ -65,6 +72,8 @@ class MotionConfig:
     active_speed_cms: float = 30
     slight_speed_cms: float = 8
     stale_seconds: float = 2.0
+    bed_still_min: float = 8          # 침대 칸(LD2410C 엔지니어링 모드) 정지 에너지 중간값이 이 이상이면 침대에 사람 있음
+    bed_gate_seconds: float = 10      # 침대 칸 정지 에너지 중간값을 내는 시간 (누운 사람 신호가 약해 길게 봄)
 
 
 @dataclass

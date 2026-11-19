@@ -6,6 +6,8 @@
   설치 정보(레이더 위치·방향)가 없으면 None (지어내지 않음)
 - 움직임 정도: LD2410C 움직임 에너지 중간값 + LD2450 속도 (기준값은 config/radar.yaml motion, 실측)
 - 레이더 값이 stale_seconds 넘게 안 오면 그 레이더는 없는 것으로 봄 (R-09)
+- LD2410C 엔지니어링 모드면 거리 칸(0.75m)별 정지 에너지 중간값도 넘김 (침대 칸에 누운 사람이 남아 있는지 판단용)
+- 문 위치가 있으면 마지막으로 사라진 움직이는 대상이 문 근처에서 시작했는지·끝났는지 넘김 (나간 흔적 판단용)
 - **한 번도 움직인 적 없는 LD2450 대상은 무시** (2026-11-12 실측: 두 레이더 간섭으로 약 2.1m에 움직임 없는 가짜 대상이
   생겼다 없어졌다 함). 진짜 사람은 걸어 들어오므로 처음 잡힐 때 움직인다. 움직이던 사람을 놓쳤다가 같은 자리 근처에서
   다시 잡으면(가만히 앉음 등) "움직였던 사람"을 이어받는다
@@ -34,6 +36,7 @@ SAME_TRACK_MM = 600       # 프레임 사이 이 안이면 같은 대상
 TRACK_LOST_SECONDS = 2.0
 REMEMBER_SECONDS = 60.0   # 움직였던 사람을 놓친 자리를 기억하는 시간 (다시 잡히면 이어받음)
 REMEMBER_MM = 800
+DOOR_RADIUS_M = 1.0       # 문 위치에서 이 안이면 "문 근처"
 
 
 @dataclass
@@ -55,6 +58,10 @@ class RadarSummary:
     position: tuple[float, float] | None   # 방 좌표 (m). 설치 정보가 없거나 대상이 없으면 None
     motion: Motion
     recent_speed_cms: float = 0.0          # 최근 1초 동안 고른 대상의 가장 빠른 속도 (걸어 나감 판단용)
+    target_range_m: float | None = None    # 고른 LD2450 대상까지의 거리 (레이더 기준, 최근 window 중간값)
+    still_gates: tuple[float, ...] = ()    # LD2410C 엔지니어링 모드: 거리 칸(0.75m)별 정지 에너지 (bed_gate_seconds 중간값)
+    door_known: bool = False               # 설정에 문 위치가 있음
+    last_exit: tuple[float, bool, bool] | None = None  # 마지막으로 사라진 움직이는 대상: (사라진 시각, 문 근처에서 시작, 문 근처에서 끝)
 
 
 def to_room(t: Ld2450Target, cfg: RadarConfig) -> tuple[float, float] | None:
@@ -86,12 +93,14 @@ class RadarInput:
         self._lock = threading.Lock()
         self._targets: deque[tuple[float, Ld2450Target | None]] = deque()  # (시각, 고른 대상 또는 없음)
         self._reports: deque[tuple[float, Ld2410Report]] = deque()
+        self._gates: deque[tuple[float, tuple[int, ...]]] = deque()   # 엔지니어링 모드 칸별 정지 에너지 (긴 창)
         self._last50 = -math.inf
         self._last10 = -math.inf
         self._last_xy: tuple[int, int] | None = None   # 직전에 고른 대상의 레이더 좌표 (mm)
         self._tracks: list[_Track] = []
         self._moved_spots: deque[tuple[float, int, int]] = deque()   # (놓친 시각, x, y)
         self.ignored_static = 0                                     # 무시한 움직임 없는 대상 수 (진단용)
+        self._last_exit: tuple[float, bool, bool] | None = None
 
     # ---------- 입력 (레이더 스레드) ----------
 
@@ -112,6 +121,8 @@ class RadarInput:
         now = self._clock()
         with self._lock:
             self._reports.append((now, report))
+            if report.stationary_gate_energy:
+                self._gates.append((now, report.stationary_gate_energy))
             self._last10 = now
             self._trim(now)
 
@@ -120,6 +131,9 @@ class RadarInput:
         for track in [t for t in self._tracks if now - t.last_t > TRACK_LOST_SECONDS]:
             if track.moved:
                 self._moved_spots.append((track.last_t, track.x, track.y))
+                if self.config.installation.has_door:
+                    self._last_exit = (track.last_t, self._near_door(track.first_x, track.first_y),
+                                       self._near_door(track.x, track.y))
         self._tracks = [t for t in self._tracks if now - t.last_t <= TRACK_LOST_SECONDS]
         while self._moved_spots and now - self._moved_spots[0][0] > REMEMBER_SECONDS:
             self._moved_spots.popleft()
@@ -144,6 +158,11 @@ class RadarInput:
                 self.ignored_static += 1
         return kept
 
+    def _near_door(self, x_mm: int, y_mm: int) -> bool:
+        inst = self.config.installation
+        xy = to_room(Ld2450Target(x_mm, y_mm, 0, 0), self.config)
+        return xy is not None and math.dist(xy, (inst.door_x, inst.door_y)) <= DOOR_RADIUS_M
+
     def _choose(self, targets: list[Ld2450Target]) -> Ld2450Target | None:
         if not targets:
             return None
@@ -158,6 +177,8 @@ class RadarInput:
             self._targets.popleft()
         while self._reports and now - self._reports[0][0] > window:
             self._reports.popleft()
+        while self._gates and now - self._gates[0][0] > self.config.motion.bed_gate_seconds:
+            self._gates.popleft()
 
     # ---------- 요약 ----------
 
@@ -169,6 +190,7 @@ class RadarInput:
             avail10 = now - self._last10 <= cfg.stale_seconds
             avail50 = now - self._last50 <= cfg.stale_seconds
             reports = [r for _, r in self._reports] if avail10 else []
+            gated = [g for _, g in self._gates] if avail10 else []
             seen = [(t, x) for t, x in self._targets if x is not None] if avail50 else []
 
         present = bool(reports) and reports[-1].state != TargetState.NONE
@@ -185,7 +207,12 @@ class RadarInput:
         speed = statistics.median(abs(x.speed_cms) for _, x in seen) if seen else None
         motion = self._motion(reports, present, speed, avail10, avail50 and recent_target)
         recent_speed = max((abs(x.speed_cms) for t, x in seen if now - t <= 1.0), default=0.0)
-        return RadarSummary(avail10, present, avail50, avail50 and recent_target, position, motion, recent_speed)
+        target_range = None
+        if seen and recent_target:
+            target_range = round(statistics.median(math.hypot(x.x_mm, x.y_mm) for _, x in seen) / 1000, 2)
+        still_gates = tuple(statistics.median(g[i] for g in gated) for i in range(min(map(len, gated)))) if gated else ()
+        return RadarSummary(avail10, present, avail50, avail50 and recent_target, position, motion, recent_speed,
+                            target_range, still_gates, self.config.installation.has_door, self._last_exit)
 
     def _motion(self, reports, present, speed, avail10, has_target) -> Motion:
         cfg = self.config.motion

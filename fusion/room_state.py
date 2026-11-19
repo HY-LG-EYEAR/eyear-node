@@ -86,7 +86,7 @@ class RoomState:
     ):
         self.family = family
         self.radar = radar
-        self._fusion = SingleRoomFusion()
+        self._fusion = SingleRoomFusion(radar.config.motion.bed_still_min if radar is not None else 40)
         self.stale_seconds = stale_seconds
         self._clock = clock
         self._lock = threading.Lock()

@@ -92,6 +92,16 @@ def test_ld2410_config_commands_match_doc_examples():
     assert p["move_sensitivity"] == [20] * 9 and p["still_sensitivity"] == [25] * 9
 
 
+def test_ld2410_engineering_commands_match_doc_examples():
+    """공식 문서 2.2.5·2.2.6 엔지니어링 모드 켜기·끄기 보내는 바이트와 ACK 예시."""
+    from radar.ld2410c_config import ENGINEERING_OFF, ENGINEERING_ON, build_command, find_ack
+
+    assert build_command(ENGINEERING_ON) == bytes.fromhex("FD FC FB FA 02 00 62 00 04 03 02 01")
+    assert build_command(ENGINEERING_OFF) == bytes.fromhex("FD FC FB FA 02 00 63 00 04 03 02 01")
+    assert find_ack(bytes.fromhex("FD FC FB FA 04 00 62 01 00 00 04 03 02 01"), ENGINEERING_ON) == b"\x00\x00"
+    assert find_ack(bytes.fromhex("FD FC FB FA 04 00 63 01 00 00 04 03 02 01"), ENGINEERING_OFF) == b"\x00\x00"
+
+
 def test_within_range_drops_far_targets():
     from radar.ld2450 import within_range
 

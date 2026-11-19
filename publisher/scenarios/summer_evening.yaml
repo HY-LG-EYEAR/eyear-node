@@ -8,6 +8,7 @@
 #   방 크기: 방1 4.2 × 3.4m, 거실 7.1 × 9.1m, 방2 6.2 × 4.95m, 세탁실 4.2 × 1.5m
 #   주요 위치: 방1 침대 (2.40, 2.67), 거실 소파 위쪽 자리 (0.60, 4.90), 아래쪽 자리 (0.60, 2.40)
 # - track_id는 Node마다 따로 매긴다 (거실에서 B=1, A=2).
+# - A = MEMBER_D (시연 영상에서 A 역할은 이효창, 얼굴 등록 MEMBER_D. 2026-11-19 확정). B = MEMBER_B (거실 가짜 데이터만).
 # - 실물 Node는 방1뿐이고 나머지 방은 같은 Node가 있다고 가정한 가짜 데이터.
 
 name: summer_evening
@@ -66,7 +67,7 @@ steps:
         occupancy: { state: OCCUPIED, confidence: 0.95 }
         persons:
           - track_id: 1
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.91
             identity_source: FACE
             posture: STANDING
@@ -86,7 +87,7 @@ steps:
         occupancy: { state: OCCUPIED, confidence: 0.97 }
         persons:
           - track_id: 1
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.92
             identity_source: FACE
             posture: LYING
@@ -113,7 +114,7 @@ steps:
         occupancy: { state: OCCUPIED, confidence: 0.93 }
         persons:
           - track_id: 1
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.75      # 카메라로 확인할 수 없으므로 낮춤
             identity_source: TRACK_CARRIED
             posture: UNKNOWN               # 어둠 속에서는 자세를 볼 수 없음 → 지어내지 않음 (실제 Node와 같게)
@@ -135,7 +136,7 @@ steps:
         occupancy: { state: OCCUPIED, confidence: 0.96 }
         persons:
           - track_id: 1
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.75
             identity_source: TRACK_CARRIED
             posture: UNKNOWN
@@ -155,7 +156,7 @@ steps:
         occupancy: { state: OCCUPIED, confidence: 0.97 }
         persons:
           - track_id: 1
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.93
             identity_source: FACE
             posture: SITTING
@@ -186,7 +187,7 @@ steps:
         persons:
           - *B_on_sofa
           - track_id: 2
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.90
             identity_source: FACE
             posture: WALKING
@@ -207,7 +208,7 @@ steps:
         persons:
           - *B_on_sofa
           - track_id: 2
-            identity: MEMBER_A
+            identity: MEMBER_D
             identity_confidence: 0.92
             identity_source: FACE
             posture: SITTING

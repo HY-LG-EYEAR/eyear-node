@@ -3,6 +3,7 @@
     python -m radar.ld2410c_config --read                 # 현재 설정 보기
     python -m radar.ld2410c_config --max-gate 4           # 최대 감지 거리 4칸 = 3.0m (움직임·정지 둘 다)
     python -m radar.ld2410c_config --max-gate 8           # 공장 기본값 (6.0m)으로 되돌리기
+    python -m radar.ld2410c_config --engineering on       # 엔지니어링 모드 (칸별 에너지 보고). 전원이 꺼지면 꺼짐
 
 근거: Hi-Link "LD2410C Serial communication protocol" V1.00
 - 명령 프레임: FD FC FB FA | 길이(2) | 명령어(2) + 값 | 04 03 02 01, ACK는 명령어 | 0x0100
@@ -10,6 +11,8 @@
 - 최대 거리·무인 시간 0x0060: 파라미터어 0x0000 움직임 최대 게이트, 0x0001 정지 최대 게이트, 0x0002 무인 시간(초)
   각 (2바이트 파라미터어 + 4바이트 값). 게이트 범위 2~8, 게이트 하나 = 0.75m
 - 설정 읽기 0x0061
+- 엔지니어링 모드 켜기 0x0062 / 끄기 0x0063 (값 없음). 2.2.5절: 켜면 보고 데이터에 거리 칸별 에너지가 붙음.
+  전원을 켜면 꺼진 상태이고, 전원이 꺼지면 설정이 사라짐 (최대 거리 설정과 달리 레이더에 남지 않음)
 """
 
 import argparse
@@ -21,6 +24,8 @@ from radar.config import load_radar_config
 CMD_HEADER = bytes.fromhex("FDFCFBFA")
 CMD_FOOTER = bytes.fromhex("04030201")
 GATE_M = 0.75
+ENGINEERING_ON = 0x0062
+ENGINEERING_OFF = 0x0063
 
 
 def build_command(word: int, value: bytes = b"") -> bytes:
@@ -96,11 +101,28 @@ class Ld2410Config:
         self.serial.close()
 
 
+def set_engineering(port: str, baud: int, on: bool = True) -> bool:
+    """엔지니어링 모드 켜기/끄기 (Node 시작 시 사용). 성공하면 True, 실패하면 False (예외를 밖으로 내지 않음)."""
+    try:
+        radar = Ld2410Config(port, baud)
+    except Exception:
+        return False
+    try:
+        ret = radar.session(lambda r: r.send(ENGINEERING_ON if on else ENGINEERING_OFF))
+        return struct.unpack("<H", ret[:2])[0] == 0
+    except Exception:
+        return False
+    finally:
+        radar.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="LD2410C 설정")
     parser.add_argument("--read", action="store_true")
     parser.add_argument("--max-gate", type=int, choices=range(2, 9), metavar="2~8",
                         help="최대 감지 거리 (게이트 하나 = 0.75m, 4 = 3.0m, 8 = 공장 기본 6.0m)")
+    parser.add_argument("--engineering", choices=["on", "off"],
+                        help="엔지니어링 모드 (거리 칸별 움직임·정지 에너지 보고). 전원이 꺼지면 자동으로 꺼짐")
     args = parser.parse_args()
 
     cfg = load_radar_config().ld2410c
@@ -115,6 +137,10 @@ def main() -> None:
                 ret = r.send(0x0060, max_gate_value(args.max_gate, args.max_gate, before["no_one_seconds"]))
                 if struct.unpack("<H", ret[:2])[0] != 0:
                     raise RuntimeError("최대 거리 설정 실패")
+            if args.engineering:
+                ret = r.send(ENGINEERING_ON if args.engineering == "on" else ENGINEERING_OFF)
+                if struct.unpack("<H", ret[:2])[0] != 0:
+                    raise RuntimeError("엔지니어링 모드 설정 실패")
             return before, r.read_params()
 
         before, after = radar.session(run)
@@ -125,6 +151,8 @@ def main() -> None:
               f"정지 {p['still_max_gate']}칸({p['still_max_gate'] * GATE_M:.2f}m), 무인 유지 {p['no_one_seconds']}초")
     print("  거리별 움직임 감도:", after["move_sensitivity"])
     print("  거리별 정지 감도:  ", after["still_sensitivity"], "(값이 클수록 둔감, 100이면 그 거리는 감지 안 함)")
+    if args.engineering:
+        print(f"엔지니어링 모드 {'켜짐' if args.engineering == 'on' else '꺼짐'} (전원이 꺼지면 다시 꺼진 상태로 돌아감)")
 
 
 if __name__ == "__main__":

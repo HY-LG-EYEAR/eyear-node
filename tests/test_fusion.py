@@ -14,8 +14,8 @@ from vision.tracker import VisionPerson
 FAMILY = load_family()
 
 
-def radar_config(placed=True) -> RadarConfig:
-    inst = InstallationConfig(1.0, 0.0, 90.0, 3.0, 3.5) if placed else InstallationConfig()
+def radar_config(placed=True, door=None) -> RadarConfig:
+    inst = InstallationConfig(1.0, 0.0, 90.0, 3.0, 3.5, *(door or (None, None))) if placed else InstallationConfig()
     return RadarConfig(
         ld2450=SensorConfig(port=None, x_positive="left", max_range_m=3.75),
         ld2410c=SensorConfig(port=None),
@@ -35,13 +35,13 @@ class Clock:
 class Room:
     """시각을 0.1초씩 진행하며 카메라·레이더 값을 넣고 snapshot을 본다."""
 
-    def __init__(self, placed=True):
+    def __init__(self, placed=True, door=None):
         self.clock = Clock()
-        self.radar = RadarInput(radar_config(placed), clock=self.clock)
+        self.radar = RadarInput(radar_config(placed, door), clock=self.clock)
         self.state = RoomState(FAMILY, clock=self.clock, radar=self.radar)
 
     def run(self, seconds, camera=None, light=Light.BRIGHT, r10=TargetState.NONE, move_e=0,
-            targets=(), camera_on=True, radar_on=True):
+            targets=(), camera_on=True, radar_on=True, gates=()):
         """실제 Node처럼 0.1초마다 값을 넣고 상태를 계산한다 (main.py는 카메라 프레임마다 계산)."""
         snap = None
         for _ in range(round(seconds / 0.1)):
@@ -49,7 +49,7 @@ class Room:
             if camera_on:
                 self.state.set_camera(camera or [], light)
             if radar_on:
-                self.radar.on_ld2410(Ld2410Report(r10, 100, move_e, 150, 60, 150))
+                self.radar.on_ld2410(Ld2410Report(r10, 100, move_e, 150, 60, 150, (0,) * len(gates), tuple(gates)))
                 self.radar.on_ld2450(list(targets))
             snap = self.state.snapshot()
         return snap
@@ -263,3 +263,148 @@ def test_resting_person_who_gets_up_in_dark_and_walks_out_is_empty():
              targets=[Ld2450Target(-600, 1500, 35, 320)])               # 일어나 걸어감
     snap = room.run(8, light=Light.DARK, r10=TargetState.STATIONARY, move_e=10)  # 뒤쪽 사람 때문에 LD2410C는 "있음"
     assert snap.occupancy.state == "EMPTY"
+
+
+# LD2410C 엔지니어링 모드 칸별 정지 에너지 (칸 0.75m). BED(2.06m) → 침대 칸 round(2.06/0.75) = 3
+G_LYING = (0, 0, 4, 15, 40, 70, 30, 20, 10)  # 실측: 누우면 침대 칸 8~25, 3.0m·3.75m 칸은 반사로 늘 높음
+G_EMPTY = (0, 0, 4, 4, 25, 40, 20, 10, 10)   # 실측: 빈 방 침대 칸 3~5
+G_FULL = (0, 0, 100, 100, 100, 100, 100, 100, 100)  # 다른 사람이 걷는 동안
+
+
+def _rest_then_toss_then_passerby(room, gates):
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN, gates=gates)
+    room.run(6, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, targets=BED,
+             gates=gates)
+    # 어둠 속에서 크게 뒤척임 4초 → RESTING이 풀림 (기존 규칙으로는 "일어났을 수 있음")
+    room.run(4, light=Light.DARK, r10=TargetState.MOVING_AND_STATIONARY, move_e=90, targets=BED,
+             gates=gates and G_LYING)
+    # 다른 사람이 레이더 옆을 지나가다 나감
+    room.run(2, light=Light.DARK, r10=TargetState.MOVING_AND_STATIONARY, move_e=100,
+             targets=[Ld2450Target(-140, 220, 25, 320)], gates=gates and G_FULL)
+
+
+def test_bed_gate_keeps_room_occupied_after_passerby_even_if_rest_released():
+    """2026-11-19 실측 반영: 지나간 사람이 나간 뒤 침대 칸 정지 에너지가 남아 있으면 누운 사람은 그대로."""
+    room = Room()
+    _rest_then_toss_then_passerby(room, G_LYING)
+    snap = room.run(10, light=Light.DARK, r10=TargetState.STATIONARY, move_e=0, gates=G_LYING)
+    assert snap.occupancy.state == "OCCUPIED"
+    assert snap.persons[0].identity == "MEMBER_A"
+
+    # 비교: 칸별 값이 없으면(엔지니어링 모드 꺼짐) 같은 상황에서 기존 규칙대로 EMPTY
+    room = Room()
+    _rest_then_toss_then_passerby(room, ())
+    assert room.run(10, light=Light.DARK, r10=TargetState.STATIONARY, move_e=0).occupancy.state == "EMPTY"
+
+
+def test_bed_gate_empty_lets_walked_out_person_leave():
+    """누운 사람이 정말 일어나 나갔으면 침대 칸이 비어 EMPTY (실측: 나가고 몇 초 안에 침대 칸 떨어짐)."""
+    room = Room()
+    _rest_then_toss_then_passerby(room, G_LYING)
+    snap = room.run(8, light=Light.DARK, r10=TargetState.STATIONARY, move_e=0, gates=G_EMPTY)
+    assert snap.occupancy.state == "EMPTY"
+
+
+def test_getting_up_in_light_and_leaving_is_empty_once_bed_gate_clears():
+    """불을 켜고 일어나 나가면, 침대 칸이 비는 대로 EMPTY (실측: 나가고 몇 초 안에 침대 칸이 떨어짐)."""
+    room = Room()
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN, gates=G_LYING)
+    room.run(6, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, targets=BED,
+             gates=G_LYING)
+    room.run(3, camera=[person(posture="STANDING")], r10=TargetState.MOVING, move_e=80,
+             targets=[Ld2450Target(-600, 1500, 35, 320)], gates=G_EMPTY)
+    snap = room.run(12, r10=TargetState.STATIONARY, move_e=0, gates=G_EMPTY)  # LD2410C "있음"(뒤쪽일 수 있음)이어도
+    assert snap.occupancy.state == "EMPTY"
+
+
+def test_radar_summary_reports_gate_medians_and_target_range():
+    room = Room()
+    room.run(1, r10=TargetState.STATIONARY, targets=WALK_IN, gates=G_LYING)
+    s = room.radar.summary()
+    assert s.still_gates == G_LYING
+    assert s.target_range_m == pytest.approx(2.06, abs=0.01)
+
+
+def test_ld2450_keeps_lying_person_when_ld2410c_misses_them_in_dark():
+    """2026-11-19 시연 공간: 3.2m에 누운 사람을 LD2410C는 대부분 "없음", LD2450은 계속 잡음 → 유지."""
+    room = Room()
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN)
+    room.run(6, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, targets=BED)
+    snap = room.run(20, light=Light.DARK, r10=TargetState.NONE, targets=BED)  # 불 꺼짐, LD2410C "없음"
+    assert (snap.occupancy.state, snap.occupancy.confidence) == ("OCCUPIED", 0.7)
+    assert (snap.persons[0].identity, snap.persons[0].activity) == ("MEMBER_A", "RESTING")
+    # LD2450이 잠깐(1초) 놓쳐도 깜빡이지 않음
+    snap = room.run(1, light=Light.DARK, r10=TargetState.NONE)
+    assert snap.occupancy.state == "OCCUPIED"
+    snap = room.run(2, light=Light.DARK, r10=TargetState.NONE, targets=BED)
+    assert snap.occupancy.state == "OCCUPIED"
+    # 아무 센서도 못 보는 채로 오래 지나면 비어 있음 (지어내지 않음)
+    assert room.run(5, light=Light.DARK, r10=TargetState.NONE).occupancy.state == "EMPTY"
+
+
+def test_ld2450_alone_still_cannot_start_occupancy():
+    """LD2450 혼자 보이는 대상은 여전히 재실을 시작하지 않음 (가짜 대상 대비)."""
+    room = Room()
+    snap = room.run(5, light=Light.DARK, r10=TargetState.NONE, targets=WALK_IN)
+    assert snap.occupancy.state == "EMPTY"
+
+
+def test_bed_gate_keeps_lying_person_when_both_radars_lose_them():
+    """2026-11-19 실측: 지나간 사람이 나간 뒤 LD2450은 누운 사람을 못 잡고, 30초쯤 지나면 LD2410C도 "없음".
+    침대 칸 정지 에너지가 남아 있으면 OCCUPIED 유지 (자는 방에 청소기가 들어가지 않게)."""
+    room = Room()
+    _rest_then_toss_then_passerby(room, G_LYING)
+    snap = room.run(30, light=Light.DARK, r10=TargetState.NONE, gates=G_LYING)
+    assert (snap.occupancy.state, snap.occupancy.confidence) == ("OCCUPIED", 0.7)
+    assert snap.persons[0].identity == "MEMBER_A"
+    # 침대 칸이 비면(정말 나감) EMPTY
+    assert room.run(12, light=Light.DARK, r10=TargetState.NONE, gates=G_EMPTY).occupancy.state == "EMPTY"
+
+
+def test_camera_seeing_only_passerby_in_dim_light_keeps_bed_memory():
+    """어둑할 때 카메라가 지나가는 사람(서 있음)만 보고 누운 사람은 못 봐도, 침대 칸이 차 있으면 침대 기억 유지."""
+    room = Room()
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN, gates=G_LYING)
+    room.run(12, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, targets=BED,
+             gates=G_LYING)
+    room.run(3, light=Light.DIM, camera=[person(identity="UNKNOWN", posture="WALKING")], r10=TargetState.MOVING,
+             move_e=100, targets=[Ld2450Target(-300, 900, 40, 320)], gates=G_FULL)
+    snap = room.run(15, light=Light.DARK, r10=TargetState.NONE, gates=G_LYING)
+    assert snap.occupancy.state == "OCCUPIED"
+
+
+# 문이 있는 방: 문 안쪽 (2.5, 0.8) = 레이더 기준 오른쪽 1.5m·앞 0.8m (x_mm -1500)
+DOOR = (2.5, 0.8)
+
+
+def _walk(room, path, r10=TargetState.MOVING_AND_STATIONARY):
+    for x, y in path:
+        room.run(0.5, light=Light.DARK, r10=r10, move_e=100, targets=[Ld2450Target(x, y, 30, 320)])
+
+
+def _lie_down_then_dark(room):
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN)
+    room.run(6, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, targets=BED)
+
+
+def test_lying_person_kept_until_exit_trace_and_passerby_is_ignored():
+    """2026-11-19 실측: 1분 가만히 누우면 모든 센서가 놓침 → 나간 흔적이 없으면 OCCUPIED 0.6 유지.
+    문 근처에서 나타났다 문으로 나간 사람(지나감)은 나간 흔적이 아님. 침대에서 시작해 문에서 사라지면 나감."""
+    room = Room(door=DOOR)
+    _lie_down_then_dark(room)
+    _walk(room, [(-1500, 800), (-1200, 1100), (-900, 1400), (-900, 1400), (-1200, 1100), (-1500, 800)])  # 지나감
+    snap = room.run(60, light=Light.DARK, r10=TargetState.NONE)   # 모든 센서가 못 봄
+    assert (snap.occupancy.state, snap.occupancy.confidence) == ("OCCUPIED", 0.6)
+    assert (snap.persons[0].identity, snap.persons[0].identity_source) == ("MEMBER_A", "TRACK_CARRIED")
+
+    _walk(room, [(500, 2000), (0, 1700), (-600, 1300), (-1100, 1000), (-1400, 850)], r10=TargetState.MOVING)  # 일어나 나감
+    snap = room.run(8, light=Light.DARK, r10=TargetState.STATIONARY)   # LD2410C "있음"은 뒤쪽일 수 있음
+    assert snap.occupancy.state == "EMPTY"
+
+
+def test_bright_room_with_nobody_on_camera_forgets_lying_person():
+    """밝은데 카메라가 10초 동안 아무도 못 보면 누워 있던 기억을 지움 (밝으면 누운 사람도 카메라가 봄)."""
+    room = Room(door=DOOR)
+    _lie_down_then_dark(room)
+    assert room.run(5, r10=TargetState.NONE).occupancy.state == "OCCUPIED"
+    assert room.run(7, r10=TargetState.NONE).occupancy.state == "EMPTY"
