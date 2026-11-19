@@ -239,3 +239,27 @@ def test_still_person_reacquired_at_same_spot_counts():
     room.run(5, camera=[person(posture="SITTING")], r10=TargetState.STATIONARY, move_e=5)   # LD2450 놓침
     snap = room.run(3, camera=[person(posture="SITTING")], r10=TargetState.STATIONARY, move_e=5, targets=BED)
     assert snap.persons[0].position is not None   # 다시 잡은 위치를 씀
+
+
+def test_someone_passing_by_after_lights_off_does_not_empty_resting_room():
+    """2026-11-12 리허설: 누워 쉬는 사람이 있는데, 불을 끄러 레이더 옆을 지나간 사람이 사라지자 EMPTY가 됨 → 고침."""
+    room = Room()
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN)
+    room.run(6, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, move_e=0)
+    # 불 끄러 온 사람: 레이더 바로 옆에서 움직이다 사라짐, 동시에 불이 꺼져 카메라는 못 봄
+    room.run(2, light=Light.DARK, r10=TargetState.MOVING_AND_STATIONARY, move_e=100,
+             targets=[Ld2450Target(-140, 220, 25, 320)])
+    snap = room.run(10, light=Light.DARK, r10=TargetState.STATIONARY, move_e=0)
+    assert snap.occupancy.state == "OCCUPIED"
+    assert (snap.persons[0].identity, snap.persons[0].activity) == ("MEMBER_A", "RESTING")
+
+
+def test_resting_person_who_gets_up_in_dark_and_walks_out_is_empty():
+    """어둠 속에서 일어나(ACTIVE 3초 → RESTING 풀림) 걸어 나가면 다시 "나감" 판단."""
+    room = Room()
+    room.run(1, camera=[person(posture="WALKING")], r10=TargetState.MOVING, move_e=80, targets=WALK_IN)
+    room.run(6, camera=[person(activity="RESTING", activity_conf=0.8)], r10=TargetState.STATIONARY, move_e=0)
+    room.run(5, light=Light.DARK, r10=TargetState.MOVING, move_e=90,
+             targets=[Ld2450Target(-600, 1500, 35, 320)])               # 일어나 걸어감
+    snap = room.run(8, light=Light.DARK, r10=TargetState.STATIONARY, move_e=10)  # 뒤쪽 사람 때문에 LD2410C는 "있음"
+    assert snap.occupancy.state == "EMPTY"

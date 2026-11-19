@@ -11,6 +11,8 @@
              (LD2410C가 아직 "있음"이어도: 레이더 뒤쪽 사람일 수 있음. 2026-11-12 실측: 카메라에만 보이던 사람이
               레이더 뒤로 걸어간 뒤 LD2410C 뒤쪽 감지로 계속 "있음"이었음 → 카메라로 본 마지막 순간도 같이 봄)
              가만히·조금 움직이던 중 사라지면(누움, 이불, 소등) 나감이 아님 → LD2410C로 유지
+             누워 있거나 RESTING이던 사람은 ②로 나가지 않음 (먼저 일어나야 나갈 수 있음. 2026-11-12 리허설:
+              소등하러 레이더 옆을 지나간 사람이 사라진 것을 누워 있던 사람이 나간 것으로 판단해 t3 직후 EMPTY가 됨)
     신뢰도: 카메라+LD2410C 0.95 / 레이더로 유지 0.8~0.85 / 카메라만 0.8 / 비어 있음 0.9
             LD2410C만 "있음"인데 시작 조건이 안 됨(뒤쪽일 수 있음) → EMPTY 0.6 / 걸어 나감 → EMPTY 0.85
     LD2410C 연결 안 됨 → LD2450 0.6 / 밝은데 카메라·LD2450 모두 없음 EMPTY 0.7 / 그 밖 UNKNOWN
@@ -57,6 +59,7 @@ class SingleRoomFusion:
         self._emitted = False  # 이번 재실 중 사람을 한 번이라도 보냄
         self._seen_at: float | None = None     # 카메라나 LD2450이 마지막으로 사람을 본 시각
         self._moving_at: float | None = None   # 보이는 동안 마지막으로 움직이던(ACTIVE·WALKING·걷는 속도) 시각
+        self._in_bed = False                    # 카메라로 마지막에 본 자세가 LYING이거나 RESTING
         self._walked_out = False                # 걸어 나감을 확인한 뒤 아직 아무도 다시 안 들어옴
 
     def fuse(self, camera: list[VisionPerson] | None, light: Light, radar: RadarSummary, now: float) -> dict:
@@ -65,6 +68,8 @@ class SingleRoomFusion:
         r10 = radar.ld2410_present if radar.ld2410_available else None
         r50 = radar.ld2450_target if radar.ld2450_available else None
 
+        if cam_seen:
+            self._in_bed = any(p.posture == "LYING" or p.activity == "RESTING" for p in camera)
         if cam_seen or r50:
             walking = cam_seen and any(p.posture == "WALKING" for p in camera)
             self._seen_at = now
@@ -78,12 +83,12 @@ class SingleRoomFusion:
                 # LD2410C 혼자: 레이더 뒤쪽일 수 있어 시작 안 함 (걸어 나감을 확인한 뒤라면 더 확실히 비어 있음)
                 occupancy = {"state": "EMPTY", "confidence": 0.85 if self._walked_out else 0.6}
         elif occupancy["state"] == "OCCUPIED" and self._present and not cam_seen and not r50 \
-                and seen_moving and now - self._seen_at >= EXIT_SECONDS:
+                and seen_moving and now - self._seen_at >= EXIT_SECONDS and not self._still_in_bed():
             occupancy = {"state": "EMPTY", "confidence": 0.85}  # 걸어 나감 (LD2410C "있음"은 뒤쪽일 수 있음)
             self._walked_out = True
         if occupancy["state"] != "OCCUPIED":
             self._present, self._carried, self._active_since, self._emitted = False, None, None, False
-            self._seen_at, self._moving_at = None, None
+            self._seen_at, self._moving_at, self._in_bed = None, None, False
             return {"occupancy": occupancy, "persons": []}
 
         if not self._present:  # 새로 들어온 사람
@@ -136,6 +141,12 @@ class SingleRoomFusion:
         self._emitted = True
         person |= {"track_id": self._id, "motion": radar.motion, "position": position}
         return {"occupancy": occupancy, "persons": [person]}
+
+    def _still_in_bed(self) -> bool:
+        """누워 있거나 쉬던 사람이 아직 일어나지 않음 (어둠 속에서 크게 움직이면 RESTING이 풀리며 False)."""
+        if self._carried is not None and self._carried.activity == Activity.RESTING:
+            return True
+        return self._in_bed and (self._carried is None or self._carried.activity != Activity.UNKNOWN)
 
     @staticmethod
     def _occupancy(cam_seen: bool, cam_available: bool, light: Light, r10: bool | None, r50: bool | None) -> dict:

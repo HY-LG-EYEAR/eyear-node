@@ -162,9 +162,14 @@ class VoiceSession:
         if listening:
             self._tried_segment = True
         result = self._recognize(segment, reply=listening)
-        if self.debug and self.state == State.LISTEN_REPLY:
+        if self.debug:  # 테스트 모드(사용자 동의 시)만: 웨이크워드가 없는 말도 무엇으로 들렸는지 화면에 표시 (밖으로 보내지 않음)
             heard = "인식 결과 없음 (잡음·환각으로 처리)" if result is None else f"'{result.text}' (신뢰도 {result.confidence:.2f})"
-            self.log(f"[음성 테스트] 말소리 구간 {len(segment) / 16000:.2f}초, 크기 {_dbfs(segment):.0f} dBFS → {heard}")
+            where = "대답" if listening else ("명령 대기" if self.state == State.AWAIT_COMMAND else "웨이크워드 대기")
+            wake = ""
+            if result is not None and self.state == State.IDLE:
+                matched = self.wakeword.match(result.text)
+                wake = " → 웨이크워드 없음(버림)" if matched is None else " → '하이 엘지' 감지"
+            self.log(f"[음성 테스트] ({where}) 말소리 구간 {len(segment) / 16000:.2f}초, 크기 {_dbfs(segment):.0f} dBFS → {heard}{wake}")
         del segment
 
         if self.state == State.LISTEN_REPLY:

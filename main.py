@@ -55,6 +55,7 @@ def main() -> None:
     parser.add_argument("--no-radar", action="store_true", help="레이더를 쓰지 않음 (포트·설정은 config/radar.yaml)")
     parser.add_argument("--radar-log", metavar="PATH", help="진단용: 레이더 원본 값(LD2450 대상, LD2410C 상태)을 JSONL로 기록")
     parser.add_argument("--no-window", action="store_true")
+    parser.add_argument("--ignore-keys", action="store_true", help="창에서 q·ESC를 눌러도 끄지 않음 (리허설·측정 중 실수 방지)")
     parser.add_argument("--no-resting", action="store_true", help="휴식 판단(MobileCLIP) 끔 → 누움은 activity UNKNOWN")
     parser.add_argument("--source", default=None, help="카메라 번호 또는 동영상 파일 (기본: config/vision.yaml)")
     args = parser.parse_args()
@@ -218,7 +219,7 @@ def run_camera(args, family, room: RoomState, publish_state, stop: threading.Eve
                 cv2.putText(frame, line, (10, 55 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1, cv2.LINE_AA)
             draw(frame, result.persons, header, config.pose.min_visibility)
             cv2.imshow("EYEAR node", frame)
-            if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+            if cv2.waitKey(1) & 0xFF in (ord("q"), 27) and not args.ignore_keys:
                 break
 
 
