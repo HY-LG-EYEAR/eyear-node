@@ -51,7 +51,7 @@ def _resting() -> dict:
         lambda m: m.update(persons=m["persons"] * 2),          # track_id 중복
         lambda m: m.update(timestamp="2026-10-30T22:00:00"),   # 시간대 없음
         lambda m: m.update(extra_field=1),
-        lambda m: m.update(schema_version="0.2"),
+        lambda m: m.update(schema_version="0.9"),  # 모르는 버전
     ],
 )
 def test_invalid_node_state_rejected(mutate):
@@ -78,3 +78,30 @@ def test_family_rejects_bad_names(tmp_path, members):
     path.write_text(json.dumps({"members": members}), encoding="utf-8")
     with pytest.raises(ValueError):
         load_family(path)
+
+
+def test_boot_id_is_fixed_per_program_and_per_fake_node():
+    """boot_id: 한 번 켜진 동안은 같고, 가짜 송신기는 방마다 따로 (2026-11-19, 이효창 요청)."""
+    from uuid import uuid4
+
+    from fusion.events import EventBuilder, RoomSnapshot
+    from schema.models import BOOT_ID, SCHEMA_VERSION, NodeStatus, VoiceCommand
+
+    snap = RoomSnapshot.model_validate({"occupancy": {"state": "EMPTY", "confidence": 0.9}, "persons": [],
+                                        "audio": {"context": "SILENT", "confidence": 0.8}, "light": "BRIGHT"})
+    clock = iter(range(100)).__next__
+    builder = EventBuilder("node_room1", "room1", FAMILY, clock=lambda: clock())
+    first, second = builder.update(snap), builder.update(snap)
+    assert first.boot_id == second.boot_id == BOOT_ID and first.schema_version == SCHEMA_VERSION == "0.2"
+    other = uuid4()
+    assert EventBuilder("node_room2", "room2", FAMILY, boot_id=other).update(snap).boot_id == other
+    assert VoiceCommand(node_id="node_room1", room_id="room1", text="불 켜줘", confidence=0.8).boot_id == BOOT_ID
+    status = NodeStatus(node_id="node_room1", room_id="room1", online=False)
+    assert (status.type, status.online, status.boot_id) == ("NODE_STATUS", False, BOOT_ID)
+
+
+def test_speak_command_accepts_old_version_from_central():
+    """중앙(송정빈)이 아직 0.1로 보내도 Node는 받는다."""
+    from schema.models import SpeakCommand
+
+    assert SpeakCommand.model_validate({"schema_version": "0.1", "text": "주무실 건가요?", "expect_reply": True})

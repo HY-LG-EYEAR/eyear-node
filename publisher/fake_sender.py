@@ -18,13 +18,14 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
 import yaml
 
 from fusion.events import EventBuilder, RoomSnapshot
 from publisher import topics
 from publisher.fake_voice import VoiceResponder, parse_reply
-from publisher.sinks import JsonlSink, MqttSink, MultiSink, Sink, StdoutSink
+from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink
 from schema.enums import Activity, AudioContext, IdentitySource, Light, Motion, OccupancyState, Posture
 from schema.family import load_family
 from schema.models import VoiceCommand
@@ -86,6 +87,7 @@ class ScenarioPlayer:
         self.manual = manual
         self.loop = loop
         self.voice_enabled = voice_enabled
+        self.boot_ids = {room: uuid4() for room in scenario.nodes}  # 가짜 Node마다 따로 (각자 켜진 것처럼)
         self.snapshots: dict[str, RoomSnapshot] = {}
         self._next = 0
         self._last_advance = 0.0
@@ -128,6 +130,7 @@ class ScenarioPlayer:
         for command in step.voice_commands:
             room = command["room"]
             self.sink.publish(topics.voice_command(room), VoiceCommand(
+                boot_id=self.boot_ids[room],
                 node_id=self.scenario.nodes[room],
                 room_id=room,
                 text=command["text"],
@@ -299,12 +302,17 @@ def main() -> None:
         nodes = {room: f"node_{room}" for room in rooms}
         driver = RandomWalker(rooms, family, args.interval or 2.0, args.seed)
 
+    boot_ids = getattr(driver, "boot_ids", None) or {room: uuid4() for room in nodes}
+    statuses = []
     if mqtt:
-        VoiceResponder(mqtt, sink, nodes, parse_reply(args.reply))
+        VoiceResponder(mqtt, sink, nodes, parse_reply(args.reply), boot_ids=boot_ids)
+        host, _, port = args.mqtt.partition(":")
+        statuses = [NodeStatusPublisher(host, int(port or 1883), node_id, room, boot_ids[room])
+                    for room, node_id in nodes.items()]
         print(f"MQTT 전송 중: {topics.PREFIX}/<room>/state (질문 수신: {topics.SPEAK_ALL_ROOMS})", flush=True)
 
     builders = {
-        room: EventBuilder(node_id, room, family, args.heartbeat)
+        room: EventBuilder(node_id, room, family, args.heartbeat, boot_id=boot_ids[room])
         for room, node_id in nodes.items()
     }
     try:
@@ -319,6 +327,8 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n종료", flush=True)
     finally:
+        for status in statuses:
+            status.close()
         sink.close()
 
 

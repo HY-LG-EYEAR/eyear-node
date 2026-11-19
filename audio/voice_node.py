@@ -18,7 +18,7 @@ from audio.vad import SpeechSegmenter
 from audio.voice_session import VoiceSession
 from audio.wakeword import TextWakeWord
 from publisher import topics
-from publisher.sinks import JsonlSink, MqttSink, MultiSink, Sink, StdoutSink
+from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink
 
 
 def build_session(config, source, sink: Sink, room_id: str, debug: bool = False,
@@ -61,6 +61,7 @@ def main() -> None:
         host, _, port = args.mqtt.partition(":")
         mqtt = MqttSink(host, int(port or 1883))
         sinks.append(mqtt)
+        status = NodeStatusPublisher(host, int(port or 1883), f"node_{args.room}", args.room)
     sink = MultiSink(sinks)
 
     source = WavSource(args.wav) if args.wav else MicStream(config.mic.device)
@@ -78,6 +79,8 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        if mqtt:
+            status.close()
         source.close()
         sink.close()
 

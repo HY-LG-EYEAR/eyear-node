@@ -3,8 +3,11 @@
   "description": "중앙 → Node. Node는 text를 TTS로 출력하고, expect_reply면 출력이 끝난 뒤 듣는다.",
   "properties": {
     "schema_version": {
-      "const": "0.1",
-      "default": "0.1",
+      "default": "0.2",
+      "enum": [
+        "0.1",
+        "0.2"
+      ],
       "title": "Schema Version",
       "type": "string"
     },

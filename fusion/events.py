@@ -5,12 +5,13 @@
 """
 
 import time
+from uuid import UUID
 from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict
 
 from schema.enums import ChangeType, EventType, Light
-from schema.models import Audio, Change, NodeStateMessage, Occupancy, Person
+from schema.models import BOOT_ID, Audio, Change, NodeStateMessage, Occupancy, Person
 
 
 class RoomSnapshot(BaseModel):
@@ -67,8 +68,10 @@ class EventBuilder:
         family: frozenset[str] | set[str],
         heartbeat_interval: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        boot_id: UUID | None = None,
     ):
         self.node_id = node_id
+        self.boot_id = boot_id or BOOT_ID  # 가짜 송신기는 방마다 따로 (실제 Node는 프로그램 하나 = BOOT_ID)
         self.room_id = room_id
         self.family = family
         self.heartbeat_interval = heartbeat_interval
@@ -90,6 +93,7 @@ class EventBuilder:
         message = NodeStateMessage.model_validate(
             {
                 "seq": self._seq,
+                "boot_id": self.boot_id,
                 "node_id": self.node_id,
                 "room_id": self.room_id,
                 "event_type": event_type,

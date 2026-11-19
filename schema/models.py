@@ -5,6 +5,12 @@
 - SpeakCommand     : 중앙 → Node. 스피커로 말할 문장
 - VoiceReply       : Node → 중앙. SpeakCommand 질문에 대한 대답 (인식 텍스트)
 - VoiceCommand     : Node → 중앙. "하이 엘지" 뒤 발화 (인식 텍스트)
+- NodeStatus       : Node → 모두. 켜짐/꺼짐 (보관 메시지, 갑자기 끊기면 브로커가 LWT로 대신 보냄)
+
+버전 기록
+- 0.1 (2026-11-06) 첫 합의본
+- 0.2 (2026-11-19) 모든 Node 발신 메시지에 boot_id 추가, NodeStatus(…/status) 추가 (이효창 요청).
+  SpeakCommand(중앙 → Node)는 0.1·0.2 둘 다 받음
 
 원본 영상·음성은 어떤 메시지에도 들어가지 않는다 (R-10).
 """
@@ -37,7 +43,9 @@ from schema.enums import (
     Posture,
 )
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
+# 이 프로그램이 켜질 때 한 번 정해지는 ID. 바뀌었으면 Node가 다시 켜진 것 (seq도 0부터 다시 시작)
+BOOT_ID = uuid4()
 
 Confidence = Annotated[float, Field(ge=0.0, le=1.0, description="신뢰도 0~1")]
 Identifier = Annotated[str, Field(pattern=r"^[a-z0-9_]+$", description="소문자, 숫자, 밑줄")]
@@ -67,8 +75,12 @@ class _Model(BaseModel):
 class _Envelope(_Model):
     """모든 Node 발신 메시지의 공통 헤더 (R-11)."""
 
-    schema_version: Literal["0.1"] = SCHEMA_VERSION
+    schema_version: Literal["0.2"] = SCHEMA_VERSION
     event_id: UUID = Field(default_factory=uuid4)
+    boot_id: UUID = Field(
+        default_factory=lambda: BOOT_ID,
+        description="Node 프로그램을 켤 때마다 새로 정해지는 ID. 바뀌면 재시작 (seq도 0부터 다시 시작)",
+    )
     node_id: Identifier
     room_id: Identifier
     timestamp: AwareDatetime = Field(default_factory=now, description="ISO 8601, 시간대 포함")
@@ -164,7 +176,7 @@ class NodeStateMessage(_Envelope):
 class SpeakCommand(_Model):
     """중앙 → Node. Node는 text를 TTS로 출력하고, expect_reply면 출력이 끝난 뒤 듣는다."""
 
-    schema_version: Literal["0.1"] = SCHEMA_VERSION
+    schema_version: Literal["0.1", "0.2"] = SCHEMA_VERSION  # 중앙이 0.2로 바꾸기 전에도 받을 수 있게
     command_id: UUID = Field(default_factory=uuid4)
     timestamp: AwareDatetime = Field(default_factory=now)
     text: str = Field(min_length=1)
@@ -194,3 +206,14 @@ class VoiceCommand(_Envelope):
     type: Literal["VOICE_COMMAND"] = "VOICE_COMMAND"
     text: str = Field(min_length=1, description="웨이크워드를 뺀 인식 문장")
     confidence: Confidence
+
+
+# ---------- Node 상태 ----------
+
+class NodeStatus(_Envelope):
+    """Node → 모두 (…/status, 보관 메시지). 켜지면 online, 정상 종료하면 offline을 직접 보내고,
+    갑자기 끊기면(프로그램 비정상 종료, 네트워크 끊김) 브로커가 미리 맡겨 둔 offline을 대신 보낸다 (MQTT LWT).
+    LWT로 온 offline의 timestamp는 Node가 연결할 때 시각이므로, 끊긴 시각은 받은 시각으로 판단할 것."""
+
+    type: Literal["NODE_STATUS"] = "NODE_STATUS"
+    online: bool

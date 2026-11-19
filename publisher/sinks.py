@@ -143,3 +143,39 @@ class MultiSink:
     def close(self) -> None:
         for sink in self.sinks:
             sink.close()
+
+
+KEEPALIVE_SECONDS = 5
+
+
+class NodeStatusPublisher:
+    """Node 하나의 켜짐/꺼짐 알림 (MQTT LWT). 상태 전용으로 연결을 따로 둔다
+    (MQTT 연결 하나에는 LWT를 하나만 맡길 수 있어서, 방 4개를 흉내 내는 가짜 송신기도 방마다 하나씩 쓴다).
+
+    - 연결 전: 브로커에 "내가 갑자기 끊기면 offline(보관)을 보내 줘"를 맡김
+    - 연결되면(재연결 포함): online(보관)
+    - close(): offline(보관)을 직접 보내고 연결 종료
+    """
+
+    def __init__(self, host: str, port: int, node_id: str, room_id: str, boot_id=None):
+        from schema.models import BOOT_ID, NodeStatus
+        from publisher import topics
+
+        self._topic = topics.status(room_id)
+        common = {"node_id": node_id, "room_id": room_id, "boot_id": boot_id or BOOT_ID}
+        self._make = lambda online: NodeStatus(online=online, **common).model_dump_json()
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client.will_set(self._topic, self._make(False), qos=1, retain=True)
+        self._client.on_connect = lambda c, *_: c.publish(self._topic, self._make(True), qos=1, retain=True)
+        try:
+            # keepalive 5초: 네트워크가 끊기면 브로커가 약 7.5초(1.5배) 안에 알아채고 offline을 보냄 (기본 60초면 90초)
+            self._client.connect(host, port, keepalive=KEEPALIVE_SECONDS)
+        except OSError as e:
+            raise ConnectionError(f"MQTT 브로커 {host}:{port}에 연결할 수 없음") from e
+        self._client.loop_start()
+
+    def close(self) -> None:
+        info = self._client.publish(self._topic, self._make(False), qos=1, retain=True)
+        info.wait_for_publish(timeout=2)
+        self._client.loop_stop()
+        self._client.disconnect()

@@ -1,6 +1,7 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "event_id": "00000000-0000-4000-8000-000000000005",
+  "boot_id": "b0000000-0000-4000-8000-000000000001",
   "node_id": "node_room1",
   "room_id": "room1",
   "timestamp": "2026-10-30T22:01:14+09:00",

@@ -18,6 +18,11 @@ def voice_command(room_id: str) -> str:
     return f"{PREFIX}/{room_id}/voice/command"
 
 
+def status(room_id: str) -> str:
+    """Node → 모두: 켜짐/꺼짐 (NodeStatus, 보관 메시지·LWT)."""
+    return f"{PREFIX}/{room_id}/status"
+
+
 def speak(room_id: str) -> str:
     """중앙 → Node: 말할 문장 (SpeakCommand)."""
     return f"{PREFIX}/{room_id}/speak"

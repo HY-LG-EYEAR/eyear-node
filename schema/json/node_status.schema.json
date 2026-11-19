@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "description": "Node → 모두 (…/status, 보관 메시지). 켜지면 online, 정상 종료하면 offline을 직접 보내고,\n갑자기 끊기면(프로그램 비정상 종료, 네트워크 끊김) 브로커가 미리 맡겨 둔 offline을 대신 보낸다 (MQTT LWT).\nLWT로 온 offline의 timestamp는 Node가 연결할 때 시각이므로, 끊긴 시각은 받은 시각으로 판단할 것.",
+  "properties": {
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "boot_id": {
+      "description": "Node 프로그램을 켤 때마다 새로 정해지는 ID. 바뀌면 재시작 (seq도 0부터 다시 시작)",
+      "format": "uuid",
+      "title": "Boot Id",
+      "type": "string"
+    },
+    "node_id": {
+      "description": "소문자, 숫자, 밑줄",
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Node Id",
+      "type": "string"
+    },
+    "room_id": {
+      "description": "소문자, 숫자, 밑줄",
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Room Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "ISO 8601, 시간대 포함",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "type": {
+      "const": "NODE_STATUS",
+      "default": "NODE_STATUS",
+      "title": "Type",
+      "type": "string"
+    },
+    "online": {
+      "title": "Online",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "boot_id",
+    "node_id",
+    "room_id",
+    "timestamp",
+    "type",
+    "online"
+  ],
+  "title": "NodeStatus",
+  "type": "object"
+}

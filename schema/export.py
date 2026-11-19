@@ -18,7 +18,9 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from schema.models import (
+    SCHEMA_VERSION,
     NodeStateMessage,
+    NodeStatus,
     SpeakCommand,
     VoiceCommand,
     VoiceReply,
@@ -33,11 +35,13 @@ MESSAGE_MODELS: dict[str, type[BaseModel]] = {
     "speak_command": SpeakCommand,
     "voice_reply": VoiceReply,
     "voice_command": VoiceCommand,
+    "node_status": NodeStatus,
 }
 
 _KST = timezone(timedelta(hours=9))
 _T0 = datetime(2026, 10, 30, 22, 0, 0, tzinfo=_KST)
 _QUESTION_ID = UUID("00000000-0000-4000-8000-0000000000c1")
+_BOOT_ID = UUID("b0000000-0000-4000-8000-000000000001")  # 예시용 고정값 (실제로는 Node를 켤 때마다 새로 정해짐)
 
 
 def _uuid(n: int) -> UUID:
@@ -62,8 +66,9 @@ def _person(**overrides) -> dict:
 
 def _state(n: int, seconds: float, **fields) -> dict:
     return {
-        "schema_version": "0.1",
+        "schema_version": SCHEMA_VERSION,
         "event_id": _uuid(n),
+        "boot_id": _BOOT_ID,
         "seq": n,
         "node_id": "node_room1",
         "room_id": "room1",
@@ -154,7 +159,7 @@ def example_messages() -> dict[str, BaseModel]:
         )),
         # t2 → 중앙이 보내는 질문
         "speak_command_question": (SpeakCommand, {
-            "schema_version": "0.1",
+            "schema_version": SCHEMA_VERSION,
             "command_id": _QUESTION_ID,
             "timestamp": _T0 + timedelta(seconds=42),
             "text": "A님, 주무실 건가요?",
@@ -163,7 +168,7 @@ def example_messages() -> dict[str, BaseModel]:
         }),
         # t5 → 중앙이 보내는 대답 (대답을 기다리지 않음)
         "speak_command_announcement": (SpeakCommand, {
-            "schema_version": "0.1",
+            "schema_version": SCHEMA_VERSION,
             "command_id": _uuid(201),
             "timestamp": _T0 + timedelta(seconds=301),
             "text": "네, 불을 켤게요",
@@ -172,7 +177,8 @@ def example_messages() -> dict[str, BaseModel]:
         }),
         # t3 → Node가 들은 대답
         "voice_reply": (VoiceReply, {
-            "schema_version": "0.1",
+            "schema_version": SCHEMA_VERSION,
+            "boot_id": _BOOT_ID,
             "event_id": _uuid(101),
             "node_id": "node_room1",
             "room_id": "room1",
@@ -184,7 +190,8 @@ def example_messages() -> dict[str, BaseModel]:
             "no_response": False,
         }),
         "voice_reply_no_response": (VoiceReply, {
-            "schema_version": "0.1",
+            "schema_version": SCHEMA_VERSION,
+            "boot_id": _BOOT_ID,
             "event_id": _uuid(102),
             "node_id": "node_room1",
             "room_id": "room1",
@@ -197,7 +204,8 @@ def example_messages() -> dict[str, BaseModel]:
         }),
         # t5 → "하이 엘지, 불 켜줘"
         "voice_command": (VoiceCommand, {
-            "schema_version": "0.1",
+            "schema_version": SCHEMA_VERSION,
+            "boot_id": _BOOT_ID,
             "event_id": _uuid(103),
             "node_id": "node_room1",
             "room_id": "room1",
@@ -205,6 +213,27 @@ def example_messages() -> dict[str, BaseModel]:
             "type": "VOICE_COMMAND",
             "text": "불 켜줘",
             "confidence": 0.81,
+        }),
+        # Node 켜짐 (보관 메시지). 갑자기 끊기면 브로커가 online: false인 같은 형식을 대신 보냄 (LWT)
+        "node_status_online": (NodeStatus, {
+            "schema_version": SCHEMA_VERSION,
+            "boot_id": _BOOT_ID,
+            "event_id": _uuid(301),
+            "node_id": "node_room1",
+            "room_id": "room1",
+            "timestamp": _T0 - timedelta(seconds=5),
+            "type": "NODE_STATUS",
+            "online": True,
+        }),
+        "node_status_offline": (NodeStatus, {
+            "schema_version": SCHEMA_VERSION,
+            "boot_id": _BOOT_ID,
+            "event_id": _uuid(302),
+            "node_id": "node_room1",
+            "room_id": "room1",
+            "timestamp": _T0 - timedelta(seconds=5),
+            "type": "NODE_STATUS",
+            "online": False,
         }),
     }
     return {name: model.model_validate(data) for name, (model, data) in raw.items()}

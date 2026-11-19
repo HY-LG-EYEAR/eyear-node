@@ -265,14 +265,20 @@
   "description": "방 전체 스냅샷. 메시지 하나만 받아도 방 상태를 알 수 있다.",
   "properties": {
     "schema_version": {
-      "const": "0.1",
-      "default": "0.1",
+      "const": "0.2",
+      "default": "0.2",
       "title": "Schema Version",
       "type": "string"
     },
     "event_id": {
       "format": "uuid",
       "title": "Event Id",
+      "type": "string"
+    },
+    "boot_id": {
+      "description": "Node 프로그램을 켤 때마다 새로 정해지는 ID. 바뀌면 재시작 (seq도 0부터 다시 시작)",
+      "format": "uuid",
+      "title": "Boot Id",
       "type": "string"
     },
     "node_id": {
@@ -331,6 +337,7 @@
   "required": [
     "schema_version",
     "event_id",
+    "boot_id",
     "node_id",
     "room_id",
     "timestamp",

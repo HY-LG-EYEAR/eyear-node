@@ -13,7 +13,7 @@ import time
 
 from publisher import topics
 from publisher.sinks import MqttSink, Sink, summarize
-from schema.models import SpeakCommand, VoiceReply
+from schema.models import BOOT_ID, SpeakCommand, VoiceReply
 
 ANSWER_DELAY = 1.5  # 출력이 끝난 뒤 대답하기까지 걸리는 시간(초), 흉내만 냄
 
@@ -26,10 +26,12 @@ class VoiceResponder:
         node_ids: dict[str, str],
         reply: str | None = "응",
         confidence: float = 0.8,
+        boot_ids: dict | None = None,
     ):
         """node_ids: {room_id: node_id}. 여기 있는 방의 SpeakCommand에만 대답한다. reply=None이면 응답 없음."""
         self.out = out
         self.node_ids = node_ids
+        self.boot_ids = boot_ids or {}
         self.reply = reply
         self.confidence = confidence
         mqtt.subscribe(topics.SPEAK_ALL_ROOMS, self._on_speak)
@@ -47,6 +49,7 @@ class VoiceResponder:
     def _send_reply(self, room_id: str, command: SpeakCommand) -> None:
         answered = self.reply is not None
         reply = VoiceReply(
+            boot_id=self.boot_ids.get(room_id, BOOT_ID),
             node_id=self.node_ids[room_id],
             room_id=room_id,
             command_id=command.command_id,
