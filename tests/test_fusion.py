@@ -408,3 +408,52 @@ def test_bright_room_with_nobody_on_camera_forgets_lying_person():
     _lie_down_then_dark(room)
     assert room.run(5, r10=TargetState.NONE).occupancy.state == "OCCUPIED"
     assert room.run(7, r10=TargetState.NONE).occupancy.state == "EMPTY"
+
+
+# ---------- 목소리 신원 (화자 식별) ----------
+
+def test_voice_identity_in_dark_replaces_track_carried():
+    """t5: 어둠 속 "하이 엘지, 불 켜줘"를 목소리로 A라고 알면 identity_source VOICE. 시간이 지나면 TRACK_CARRIED로 이어감."""
+    room = Room()
+    room.run(1, camera=[person(identity="MEMBER_D", posture="WALKING")], r10=TargetState.MOVING, move_e=80,
+             targets=WALK_IN)
+    room.run(6, camera=[person(identity="MEMBER_D", activity="RESTING", activity_conf=0.8)],
+             r10=TargetState.STATIONARY, targets=BED)
+    snap = room.run(5, light=Light.DARK, r10=TargetState.STATIONARY)
+    assert snap.persons[0].identity_source == "TRACK_CARRIED"
+    room.state.note_voice("MEMBER_D", 0.84)
+    snap = room.run(1, light=Light.DARK, r10=TargetState.STATIONARY)
+    p = snap.persons[0]
+    assert (p.identity, p.identity_source, p.identity_confidence) == ("MEMBER_D", "VOICE", 0.84)
+    snap = room.run(31, light=Light.DARK, r10=TargetState.STATIONARY)   # 30초 지나면
+    p = snap.persons[0]
+    assert (p.identity, p.identity_source) == ("MEMBER_D", "TRACK_CARRIED")
+    assert p.identity_confidence == pytest.approx(0.84 * 0.8)
+
+
+def test_voice_identifies_person_who_entered_dark_room():
+    """처음부터 어두운 방에 들어온 사람은 UNKNOWN이지만, 말하면 목소리로 신원을 앎."""
+    room = Room()
+    snap = room.run(3, light=Light.DARK, camera=[], r10=TargetState.MOVING, move_e=70, targets=WALK_IN)
+    assert snap.persons[0].identity == "UNKNOWN"
+    room.state.note_voice("MEMBER_B", 0.77)
+    p = room.run(1, light=Light.DARK, camera=[], r10=TargetState.STATIONARY, targets=BED).persons[0]
+    assert (p.identity, p.identity_source) == ("MEMBER_B", "VOICE")
+
+
+def test_face_wins_over_voice():
+    room = Room()
+    room.run(1, camera=[person(identity="MEMBER_D", posture="STANDING")], r10=TargetState.MOVING, move_e=80,
+             targets=WALK_IN)
+    room.state.note_voice("MEMBER_B", 0.7)
+    p = room.run(1, camera=[person(identity="MEMBER_D", posture="STANDING")], r10=TargetState.STATIONARY,
+                 targets=BED).persons[0]
+    assert (p.identity, p.identity_source) == ("MEMBER_D", "FACE")
+
+
+def test_unrecognized_face_in_dim_light_uses_voice():
+    room = Room()
+    room.state.note_voice("MEMBER_D", 0.8)
+    p = room.run(2, light=Light.DIM, camera=[person(identity="UNKNOWN", posture="SITTING")],
+                 r10=TargetState.MOVING, move_e=70, targets=WALK_IN).persons[0]
+    assert (p.identity, p.identity_source) == ("MEMBER_D", "VOICE")

@@ -257,3 +257,62 @@ def test_reply_uses_hinted_recognizer_but_commands_do_not():
     h.idle(0.1)
     h.talk(2)  # 대답 → 힌트 인식
     assert used == ["reply"] and h.published()[-1].text == "응"
+
+
+# ---------- 화자 식별 연결 (audio/speaker_id.py는 가짜로) ----------
+
+def _with_speaker(h, result=("MEMBER_D", 0.82)):
+    calls, noted = [], []
+
+    def identify(audio):
+        calls.append(audio.copy())
+        return result
+
+    h.session.identify_speaker = identify
+    h.session.on_speaker = lambda who, conf: noted.append((who, conf))
+    return calls, noted
+
+
+def test_speaker_of_one_shot_command_is_reported():
+    h = Harness({1: "하이 LG 불 켜줘"})
+    calls, noted = _with_speaker(h)
+    h.talk(1, seconds=1.5)
+    assert noted == [("MEMBER_D", 0.82)] and len(calls) == 1
+    assert [m.text for m in h.published()] == ["불 켜줘"]
+
+
+def test_wake_and_command_spoken_separately_are_joined_for_speaker():
+    """"하이 엘지"와 명령을 따로 말하면 두 구간을 합쳐 판단 (각각은 1초가 안 될 수 있음)."""
+    h = Harness({1: "하이 LG", 2: "에어컨 꺼줘"})
+    calls, noted = _with_speaker(h)
+    h.talk(1)
+    assert calls == []                       # 웨이크워드만으로는 아직 판단 안 함
+    h.talk(2)
+    [audio] = calls
+    assert {1, 2} <= set(np.unique(audio))   # 두 구간이 함께 들어감
+    assert noted == [("MEMBER_D", 0.82)]
+
+
+def test_unknown_speaker_is_not_reported():
+    h = Harness({1: "하이 LG 불 켜줘"})
+    calls, noted = _with_speaker(h, ("UNKNOWN", 0.0))
+    h.talk(1)
+    assert len(calls) == 1 and noted == []
+
+
+def test_speech_without_wakeword_is_not_identified():
+    """웨이크워드 없는 말은 화자 식별도 하지 않고 버림."""
+    h = Harness({1: "오늘 저녁 뭐 먹지"})
+    calls, noted = _with_speaker(h)
+    h.talk(1, seconds=2.0)
+    assert calls == [] and noted == []
+
+
+def test_reply_speaker_is_reported():
+    h = Harness({1: "응"})
+    calls, noted = _with_speaker(h)
+    h.session.submit(SpeakCommand(text="주무실 건가요?", expect_reply=True, listen_seconds=5))
+    h.idle(0.1)
+    h.talk(1)
+    assert len(calls) == 1 and noted == [("MEMBER_D", 0.82)]
+    assert isinstance(h.published()[-1], VoiceReply)

@@ -41,6 +41,11 @@
             누워 있던 사람의 나간 흔적이 없어서 유지 (센서는 못 봄) → OCCUPIED 0.6
     LD2410C 연결 안 됨 → LD2450 0.6 / 밝은데 카메라·LD2450 모두 없음 EMPTY 0.7 / 그 밖 UNKNOWN
 
+목소리 신원 (화자 식별, 2026-11-23): 음성 대화에서 대답·명령을 말한 사람을 알면 note_voice로 받는다.
+    카메라가 얼굴로 신원을 모를 때(어둠, 어둑함, 처음부터 어두운 방) voice_hold_seconds 동안 그 신원을
+    identity_source VOICE로 쓴다 (시나리오 t5: 어둠 속 "하이 엘지, 불 켜줘"). 얼굴이 보이면 FACE가 우선.
+    1인 방 가정이라 말한 사람 = 방에 있는 사람으로 본다. 시간이 지나면 그 신원을 TRACK_CARRIED로 이어간다.
+
 사람 (1인 방):
     - 번호는 이 클래스가 정함. 방이 EMPTY가 됐다가 다시 사람이 생기면 새 번호 (나갔다 들어온 것)
     - 카메라가 보면: 신원·자세·활동은 카메라, 위치·움직임 정도는 레이더
@@ -78,8 +83,10 @@ class _Carried:
 
 
 class SingleRoomFusion:
-    def __init__(self, bed_still_min: float = 8):
+    def __init__(self, bed_still_min: float = 8, voice_hold_seconds: float = 30.0):
         self.bed_still_min = bed_still_min
+        self.voice_hold_seconds = voice_hold_seconds
+        self._voice: tuple[float, str, float] | None = None   # (시각, 신원, 신뢰도) 목소리로 확인한 말한 사람
         self._bed_range: float | None = None    # 카메라가 누운 자세를 볼 때 LD2450 거리 (침대 칸)
         self._id = 0
         self._present = False
@@ -93,9 +100,14 @@ class SingleRoomFusion:
         self._bed_since: float | None = None    # 누운 것을 처음 본 시각 (이후의 나간 흔적만 셈)
         self._cam_empty_since: float | None = None  # 밝은데 카메라가 아무도 못 본 시작 시각
 
+    def note_voice(self, identity: str, confidence: float, now: float) -> None:
+        """음성 대화에서 말한 사람을 목소리로 알아냄."""
+        self._voice = (now, identity, confidence)
+
     def fuse(self, camera: list[VisionPerson] | None, light: Light, radar: RadarSummary, now: float) -> dict:
         """RoomSnapshot의 occupancy·persons 부분 (dict)."""
         cam_seen = bool(camera)
+        voice = self._voice if self._voice is not None and now - self._voice[0] <= self.voice_hold_seconds else None
         r10 = radar.ld2410_present if radar.ld2410_available else None
         r50 = radar.ld2450_target if radar.ld2450_available else None
 
@@ -143,7 +155,7 @@ class SingleRoomFusion:
         if occupancy["state"] != "OCCUPIED":
             self._present, self._carried, self._active_since, self._emitted = False, None, None, False
             self._seen_at, self._moving_at, self._in_bed, self._bed_range = None, None, False, None
-            self._bed_since, self._cam_empty_since = None, None
+            self._bed_since, self._cam_empty_since, self._voice = None, None, None
             return {"occupancy": occupancy, "persons": []}
 
         if not self._present:  # 새로 들어온 사람
@@ -158,11 +170,17 @@ class SingleRoomFusion:
                 self._carried = _Carried()
             if p.identity != IDENTITY_UNKNOWN:
                 self._carried.identity, self._carried.identity_confidence = p.identity, p.identity_confidence
+                identity, identity_conf, source = p.identity, p.identity_confidence, "FACE"
+            elif voice is not None:  # 얼굴로 모름 (어둑함 등) → 목소리
+                self._carried.identity, self._carried.identity_confidence = voice[1], voice[2]
+                identity, identity_conf, source = voice[1], voice[2], "VOICE"
+            else:
+                identity, identity_conf, source = IDENTITY_UNKNOWN, p.identity_confidence, "UNKNOWN"
             self._carried.activity, self._carried.activity_confidence = Activity(p.activity), p.activity_confidence
             person = {
-                "identity": p.identity,
-                "identity_confidence": p.identity_confidence,
-                "identity_source": "UNKNOWN" if p.identity == IDENTITY_UNKNOWN else "FACE",
+                "identity": identity,
+                "identity_confidence": identity_conf,
+                "identity_source": source,
                 "posture": p.posture,
                 "posture_confidence": p.posture_confidence,
                 "activity": p.activity,
@@ -174,15 +192,29 @@ class SingleRoomFusion:
                     and now - self._active_since >= ACTIVE_EXIT_SECONDS:
                 c.activity, c.activity_confidence = Activity.UNKNOWN, 0.0  # 크게 움직임 → 일어났을 수 있음
             keep_rest = c.activity == Activity.RESTING
+            if voice is not None:
+                c.identity, c.identity_confidence = voice[1], voice[2]
             known = c.identity != IDENTITY_UNKNOWN
+            if voice is not None:
+                identity_conf, source = voice[2], "VOICE"
+            else:
+                identity_conf = round(c.identity_confidence * CARRIED_IDENTITY_FACTOR, 3) if known else 0.0
+                source = "TRACK_CARRIED" if known else "UNKNOWN"
             person = {
                 "identity": c.identity,
-                "identity_confidence": round(c.identity_confidence * CARRIED_IDENTITY_FACTOR, 3) if known else 0.0,
-                "identity_source": "TRACK_CARRIED" if known else "UNKNOWN",
+                "identity_confidence": identity_conf,
+                "identity_source": source,
                 "posture": "UNKNOWN",
                 "posture_confidence": 0.0,
                 "activity": "RESTING" if keep_rest else "UNKNOWN",
                 "activity_confidence": round(c.activity_confidence * CARRIED_ACTIVITY_FACTOR, 3) if keep_rest else 0.0,
+            }
+        elif voice is not None:  # 카메라로 본 적 없는 사람 (처음부터 어두운 방)이 말함
+            self._carried = _Carried(voice[1], voice[2])
+            person = {
+                "identity": voice[1], "identity_confidence": voice[2], "identity_source": "VOICE",
+                "posture": "UNKNOWN", "posture_confidence": 0.0,
+                "activity": "UNKNOWN", "activity_confidence": 0.0,
             }
         elif radar.ld2450_target or self._emitted:
             person = {

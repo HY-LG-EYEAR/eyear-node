@@ -65,6 +65,8 @@ class VoiceSession:
         debug: bool = False,
         record_dir: str | None = None,
         transcribe_reply: Callable[[object], Transcript | None] | None = None,
+        identify_speaker: Callable[[np.ndarray], tuple[str, float]] | None = None,
+        on_speaker: Callable[[str, float], None] | None = None,
     ):
         self.source = source
         self.frames = source.subscribe()
@@ -89,6 +91,10 @@ class VoiceSession:
         self._commands: queue.Queue[SpeakCommand] = queue.Queue()
         self._deadline = 0.0
         self._question: SpeakCommand | None = None
+        # 화자 식별 (audio/speaker_id.py): 대답·명령을 보낼 때 그 말소리로 누구인지. 결과는 on_speaker로 방 상태에 알림
+        self.identify_speaker = identify_speaker
+        self.on_speaker = on_speaker
+        self._wake_audio: np.ndarray | None = None  # "하이 엘지"만 말한 구간 (다음 명령과 합쳐 화자 판단, 메모리에서만)
 
     # ---------- 입력 ----------
 
@@ -170,27 +176,44 @@ class VoiceSession:
                 matched = self.wakeword.match(result.text)
                 wake = " → 웨이크워드 없음(버림)" if matched is None else " → '하이 엘지' 감지"
             self.log(f"[음성 테스트] ({where}) 말소리 구간 {len(segment) / 16000:.2f}초, 크기 {_dbfs(segment):.0f} dBFS → {heard}{wake}")
-        del segment
 
         if self.state == State.LISTEN_REPLY:
             if result is None:
                 return  # 잡음. 마감 시간까지 계속 듣는다
+            self._identify(segment)
             self._reply(result.text, result.confidence)
         elif self.state == State.AWAIT_COMMAND:
             if result is None:
                 return
             command = self.wakeword.match(result.text)  # "하이 엘지"를 또 말했을 수도 있음
+            wake, self._wake_audio = self._wake_audio, None
+            self._identify(segment if wake is None else np.concatenate([wake, segment]))
             self._command(command if command else result.text, result.confidence)
         elif result is not None:
             command = self.wakeword.match(result.text)
             if command is None:
-                return  # 웨이크워드 없음 → 버림
+                return  # 웨이크워드 없음 → 버림 (소리도 남기지 않음)
             if command:
+                self._identify(segment)
                 self._command(command, result.confidence)
             else:
+                self._wake_audio = segment
                 self.state = State.AWAIT_COMMAND
                 self._deadline = self.clock() + self.config.wakeword.follow_up_seconds
                 self.log("[음성] '하이 엘지' 감지 → 명령 기다리는 중")
+
+    def _identify(self, audio) -> None:
+        """말한 사람을 판단해 방 상태에 알린다. 판단할 수 없으면 알리지 않음 (UNKNOWN을 지어내지 않음)."""
+        if self.identify_speaker is None:
+            return
+        try:
+            who, confidence = self.identify_speaker(audio)
+        except Exception as e:  # 화자 식별 실패가 대화를 막으면 안 됨
+            self.log(f"[음성] 화자 식별 오류: {e}")
+            return
+        self.log(f"[음성] 말한 사람: {who}" + (f" ({confidence:.2f})" if confidence else f" (판단 불가, {len(audio) / 16000:.1f}초)"))
+        if who != "UNKNOWN" and self.on_speaker is not None:
+            self.on_speaker(who, confidence)
 
     def _save_eval(self, audio) -> None:
         import wave
@@ -225,7 +248,7 @@ class VoiceSession:
                 self._reply(result.text, result.confidence)
         else:
             self.log("[음성] 명령 없음 → 대기")
-            self.state = State.IDLE
+            self.state, self._wake_audio = State.IDLE, None
 
     # ---------- 출력 ----------
 

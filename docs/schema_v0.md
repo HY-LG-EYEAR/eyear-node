@@ -119,6 +119,9 @@ Node ──(켜짐/꺼짐, 보관 메시지)────────────
   - 카메라가 사람을 못 보는 동안(불 꺼짐, 이불, 카메라 밖)에도 레이더가 사람을 감지하면, 밝을 때 본 사람을 그대로 이어서 보냅니다.
     이때 `posture`는 `UNKNOWN`(보이지 않으므로 지어내지 않음)이고, `RESTING`은 크게 움직이지(`ACTIVE` 3초 이상) 않는 동안 유지됩니다.
   - 처음부터 어두운 방에 들어온 사람은 `identity: UNKNOWN`입니다.
+  - **목소리로 신원 확인** (2026-11-23): 얼굴이 안 보일 때 "하이 엘지" 명령이나 질문의 대답을 말하면, 목소리로 누구인지 확인해
+    30초 동안 `identity_source: VOICE`로 보냅니다 (예: 어둠 속 t5 "하이 엘지, 불 켜줘"). 그 뒤에는 `TRACK_CARRIED`로 이어갑니다.
+    "응"처럼 1초보다 짧은 말이나 확신이 없으면 바꾸지 않습니다. 얼굴이 보이면 `FACE`가 우선입니다. 메시지 형식은 그대로입니다.
 - **재실 판단** (2026-11-12 실측 반영):
   - **들어옴**: 카메라나 위치 레이더(LD2450)가 방 **앞쪽**에서 사람을 봐야 `OCCUPIED`가 됩니다.
     재실 레이더(LD2410C)는 레이더 **뒤쪽(벽 너머)** 사람도 잡기 때문에 혼자서는 시작하지 않습니다.
@@ -266,6 +269,14 @@ $PY main.py --mqtt localhost --no-resting  # 휴식 판단(MobileCLIP) 끔 → �
 ```
 
 - 모델 파일은 `data/models/`에 따로 받아야 합니다 (`pose_landmarker_full.task`, `yamnet.tflite`, 없으면 받는 명령을 알려 줌).
+- 목소리 신원(화자 식별)은 선택입니다. 설치·모델·등록이 없으면 자동으로 꺼집니다.
+  ```bash
+  ~/.venvs/eyear-node/bin/pip install -e ".[speaker]"
+  mkdir -p data/models/speaker && curl -L -o data/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx \
+    https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx
+  $PY -m audio.enroll_voice --name MEMBER_D    # 본인 동의 후 문장 5개 읽기 (녹음은 저장 안 함, 특징값만)
+  $PY -m audio.enroll_voice --test             # 말하면 누구로 판단하는지 확인
+  ```
 - 센서를 끄거나, 센서 결과가 3초 넘게 오지 않으면 그 값은 `UNKNOWN`으로 나갑니다.
 
 ## 6. 합의 현황

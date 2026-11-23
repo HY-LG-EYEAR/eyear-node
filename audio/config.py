@@ -87,6 +87,18 @@ class ClassifierConfig:
 
 
 @dataclass
+class SpeakerIdConfig:
+    """화자 식별 (audio/speaker_id.py). 모델·등록이 없으면 자동으로 꺼짐."""
+    enabled: bool = True
+    model_path: str = "data/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+    voices_dir: str = "data/voices"
+    threshold: float = 0.65
+    margin: float = 0.05
+    min_seconds: float = 1.0
+    hold_seconds: float = 30.0   # 목소리로 확인한 신원을 방 상태에 쓰는 시간 (어둠 속 등 카메라가 못 볼 때)
+
+
+@dataclass
 class AudioConfig:
     mic: MicConfig
     tts: TtsConfig
@@ -94,10 +106,12 @@ class AudioConfig:
     stt: SttConfig
     wakeword: WakeWordConfig
     classifier: ClassifierConfig = field(default_factory=ClassifierConfig)
+    speaker: SpeakerIdConfig = field(default_factory=SpeakerIdConfig)
 
     @classmethod
     def default(cls) -> "AudioConfig":
-        return cls(MicConfig(), TtsConfig(), VadConfig(), SttConfig(), WakeWordConfig(), ClassifierConfig())
+        return cls(MicConfig(), TtsConfig(), VadConfig(), SttConfig(), WakeWordConfig(), ClassifierConfig(),
+                   SpeakerIdConfig())
 
 
 def _build(section_cls, values: dict | None):
@@ -117,4 +131,5 @@ def load_audio_config(path: Path | str = DEFAULT_AUDIO_CONFIG) -> AudioConfig:
         stt=_build(SttConfig, data.get("stt")),
         wakeword=_build(WakeWordConfig, data.get("wakeword")),
         classifier=_build(ClassifierConfig, data.get("classifier")),
+        speaker=_build(SpeakerIdConfig, data.get("speaker")),
     )

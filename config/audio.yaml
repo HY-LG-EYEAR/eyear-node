@@ -63,3 +63,16 @@ classifier:
             Piano, Guitar, Drum, Orchestra]
     TV: [Television]
     SILENT: [Silence]
+
+speaker:
+  # 화자 식별 (목소리로 누구인지). audio/speaker_id.py. 모델 파일이나 등록된 목소리가 없으면 자동으로 꺼짐
+  # 등록: python -m audio.enroll_voice --name MEMBER_D   (녹음은 저장하지 않고 특징값만 data/voices/에)
+  enabled: true
+  model_path: data/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx
+  voices_dir: data/voices
+  # 2026-11-23 합성 음성 8개로 동작 확인: 1.9초 명령 같은 목소리 0.79~0.89 / 다른 목소리 최대 0.58.
+  # 사람 목소리·침대 거리로 다시 잴 것 (python -m audio.enroll_voice --test)
+  threshold: 0.65            # 가장 비슷한 사람의 유사도가 이보다 낮으면 UNKNOWN
+  margin: 0.05               # 1등과 2등 차이가 이보다 작으면 UNKNOWN
+  min_seconds: 1.0           # 이보다 짧은 말("응")은 판단하지 않음 (0.5초는 같은 사람·다른 사람이 겹침)
+  hold_seconds: 30           # 목소리로 확인한 신원을 방 상태(identity_source: VOICE)에 쓰는 시간

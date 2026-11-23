@@ -91,7 +91,8 @@ def main() -> None:
         mic = MicStream(audio_config.mic.device)
         yamnet = YamnetModel(audio_config.classifier)
         worker = AudioContextWorker(mic, yamnet.scores, audio_config.classifier, room.set_audio)
-        session = build_session(audio_config, mic, sink, args.room)
+        session = build_session(audio_config, mic, sink, args.room, on_speaker=room.note_voice)
+        room.set_voice_hold(audio_config.speaker.hold_seconds)
         if mqtt:
             mqtt.subscribe(topics.speak(args.room), session.on_speak_message)
             print(f"질문 수신: {topics.speak(args.room)}")

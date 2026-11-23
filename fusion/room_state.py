@@ -83,10 +83,11 @@ class RoomState:
         stale_seconds: float = 3.0,
         clock: Callable[[], float] = time.monotonic,
         radar: RadarInput | None = None,
+        voice_hold_seconds: float = 30.0,
     ):
         self.family = family
         self.radar = radar
-        self._fusion = SingleRoomFusion(radar.config.motion.bed_still_min if radar is not None else 40)
+        self._fusion = SingleRoomFusion(radar.config.motion.bed_still_min if radar is not None else 8, voice_hold_seconds)
         self.stale_seconds = stale_seconds
         self._clock = clock
         self._lock = threading.Lock()
@@ -100,6 +101,14 @@ class RoomState:
         with self._lock:
             self._camera = None if persons is None else (list(persons), light)
             self._camera_at = self._clock()
+
+    def set_voice_hold(self, seconds: float) -> None:
+        self._fusion.voice_hold_seconds = seconds
+
+    def note_voice(self, identity: str, confidence: float) -> None:
+        """음성 대화에서 말한 사람을 목소리로 알아냄 (화자 식별). 레이더가 있을 때 방 상태에 씀."""
+        with self._lock:
+            self._fusion.note_voice(identity, confidence, self._clock())
 
     def set_audio(self, audio: Audio | None) -> None:
         with self._lock:

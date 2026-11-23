@@ -193,6 +193,11 @@
 - 얼굴 식별: insightface + onnxruntime
 - 소리 분류: MediaPipe Audio Classifier (YAMNet) → 우리 enum으로 매핑
 - 음성 출력: macOS TTS (`say`, 한국어) / 음성 인식: Whisper 계열 로컬 모델 (후보) / 웨이크워드 감지 방식: 미정
+- 화자 식별 (2026-11-23): 3D-Speaker CAM++ (sherpa-onnx, onnxruntime, 사전 학습). SpeechBrain은 torchaudio가 torch 2.15와 맞지 않아 보류.
+  `audio/speaker_id.py`, 등록 `python -m audio.enroll_voice` (녹음 저장 안 함, 특징값만 data/voices/).
+  쓰는 곳: 얼굴이 안 보일 때 대답·"하이 엘지" 명령을 말한 사람 → 방 상태 identity_source VOICE (30초), 시나리오 t5.
+  1초보다 짧은 말("응")은 판단 안 함 (합성 음성 실측: 0.5초는 같은 사람·다른 사람 유사도가 겹침).
+  음성 메시지에 speaker 필드를 넣는 것은 schema 0.3이라 목요일 통합 뒤 송정빈·이효창과 맞춰서.
 - 마이크: sounddevice / 레이더: pyserial / 전송: paho-mqtt
 
 ### 폴더 구조

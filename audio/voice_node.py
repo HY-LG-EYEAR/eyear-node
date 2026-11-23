@@ -22,9 +22,13 @@ from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher,
 
 
 def build_session(config, source, sink: Sink, room_id: str, debug: bool = False,
-                  record_dir: str | None = None) -> VoiceSession:
+                  record_dir: str | None = None, on_speaker=None) -> VoiceSession:
+    """on_speaker(신원, 신뢰도): 화자 식별로 말한 사람을 알았을 때 (실제 Node는 방 상태로 보냄)."""
+    from audio.speaker_id import load_identifier
+
     print(f"Whisper '{config.stt.model}' 모델 불러오는 중...")
     recognizer = SpeechRecognizer(config.stt)
+    identifier = load_identifier(config.speaker)
     return VoiceSession(
         source=source,
         segmenter=SpeechSegmenter(config.vad),
@@ -38,6 +42,8 @@ def build_session(config, source, sink: Sink, room_id: str, debug: bool = False,
         config=config,
         debug=debug,
         record_dir=record_dir,
+        identify_speaker=identifier.identify if identifier else None,
+        on_speaker=on_speaker,
     )
 
 
