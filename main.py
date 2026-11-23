@@ -26,7 +26,7 @@ from fusion.events import EventBuilder
 from fusion.radar_input import RadarInput
 from fusion.room_state import RoomState
 from publisher import topics
-from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink
+from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink, parse_broker
 from schema.enums import Light
 from schema.family import load_family
 
@@ -67,10 +67,10 @@ def main() -> None:
     mqtt = None
     closers_first: list = []  # 끝낼 때 가장 먼저: offline 알림 (갑자기 끊기면 브로커가 대신 알림)
     if args.mqtt:
-        host, _, port = args.mqtt.partition(":")
-        mqtt = MqttSink(host, int(port or 1883))
+        host, port = parse_broker(args.mqtt)
+        mqtt = MqttSink(host, port)
         sinks.append(mqtt)
-        closers_first.append(NodeStatusPublisher(host, int(port or 1883), f"node_{args.room}", args.room).close)
+        closers_first.append(NodeStatusPublisher(host, port, f"node_{args.room}", args.room).close)
     sink = MultiSink(sinks)
     closers = []
     radar = None if args.no_radar else start_radar(closers, args.radar_log)

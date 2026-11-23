@@ -28,7 +28,7 @@
   "persons": [
     {
       "track_id": 1,
-      "identity": "MEMBER_A",
+      "identity": "MEMBER_D",
       "identity_confidence": 0.75,
       "identity_source": "TRACK_CARRIED",
       "posture": "UNKNOWN",

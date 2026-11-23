@@ -1,6 +1,11 @@
-"""메시지 출력 대상: MQTT, 화면(stdout), JSONL 파일. 여러 개를 동시에 쓸 수 있다."""
+"""메시지 출력 대상: MQTT, 화면(stdout), JSONL 파일. 여러 개를 동시에 쓸 수 있다.
+
+MQTT 아이디·비밀번호 (브로커를 같은 와이파이에 열 때): 환경 변수 EYEAR_MQTT_USER, EYEAR_MQTT_PASSWORD.
+명령어 인자로 받지 않는 이유: 셸 기록·프로세스 목록에 비밀번호가 남지 않게.
+"""
 
 import json
+import os
 import sys
 import threading
 from collections.abc import Callable
@@ -88,10 +93,35 @@ class JsonlSink:
 MessageHandler = Callable[[str, bytes], None]
 
 
+def parse_broker(value: str) -> tuple[str, int]:
+    """'HOST[:PORT]' → (host, port). 포트가 없으면 1883."""
+    host, _, port = value.partition(":")
+    return host or "localhost", int(port or 1883)
+
+
+def new_client() -> mqtt.Client:
+    """MQTT 클라이언트. 환경 변수에 아이디가 있으면 아이디·비밀번호로 접속."""
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    user = os.environ.get("EYEAR_MQTT_USER")
+    if user:
+        client.username_pw_set(user, os.environ.get("EYEAR_MQTT_PASSWORD"))
+    return client
+
+
+def warn_if_refused(reason_code) -> bool:
+    """브로커가 접속을 거절했으면 이유를 알리고 True."""
+    if getattr(reason_code, "is_failure", False):
+        hint = " (EYEAR_MQTT_USER·EYEAR_MQTT_PASSWORD 확인)" if "authoriz" in str(reason_code).lower() \
+            or "password" in str(reason_code).lower() else ""
+        print(f"[MQTT] 브로커가 접속을 거절함: {reason_code}{hint}", file=sys.stderr, flush=True)
+        return True
+    return False
+
+
 class MqttSink:
     def __init__(self, host: str = "localhost", port: int = 1883):
         self._handlers: dict[str, MessageHandler] = {}
-        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client = new_client()
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         try:
@@ -104,6 +134,8 @@ class MqttSink:
         self._client.loop_start()
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
+        if warn_if_refused(reason_code):
+            return
         # 재연결 시에도 구독 유지
         for topic in self._handlers:
             client.subscribe(topic, qos=1)
@@ -164,9 +196,14 @@ class NodeStatusPublisher:
         self._topic = topics.status(room_id)
         common = {"node_id": node_id, "room_id": room_id, "boot_id": boot_id or BOOT_ID}
         self._make = lambda online: NodeStatus(online=online, **common).model_dump_json()
-        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client = new_client()
         self._client.will_set(self._topic, self._make(False), qos=1, retain=True)
-        self._client.on_connect = lambda c, *_: c.publish(self._topic, self._make(True), qos=1, retain=True)
+
+        def on_connect(client, userdata, flags, reason_code, properties):
+            if not warn_if_refused(reason_code):
+                client.publish(self._topic, self._make(True), qos=1, retain=True)
+
+        self._client.on_connect = on_connect
         try:
             # keepalive 5초: 네트워크가 끊기면 브로커가 약 7.5초(1.5배) 안에 알아채고 offline을 보냄 (기본 60초면 90초)
             self._client.connect(host, port, keepalive=KEEPALIVE_SECONDS)

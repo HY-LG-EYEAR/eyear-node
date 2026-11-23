@@ -51,7 +51,7 @@ def _uuid(n: int) -> UUID:
 def _person(**overrides) -> dict:
     person = {
         "track_id": 1,
-        "identity": "MEMBER_A",
+        "identity": "MEMBER_D",
         "identity_confidence": 0.91,
         "identity_source": "FACE",
         "posture": "STANDING",

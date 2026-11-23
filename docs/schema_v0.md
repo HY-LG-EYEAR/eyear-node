@@ -63,7 +63,7 @@ Node ──(켜짐/꺼짐, 보관 메시지)────────────
   "persons": [
     {
       "track_id": 1,
-      "identity": "MEMBER_A",
+      "identity": "MEMBER_D",
       "identity_confidence": 0.92,
       "identity_source": "FACE",
       "posture": "LYING",

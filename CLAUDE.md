@@ -219,6 +219,15 @@ eyear-node/
 
 이번 주 목표: 스키마 v0와 가짜 송신기 전달 + 노트북 카메라 앞에서 신원·자세가 실시간으로 찍히는 프로그램.
 
+### 팀 연동용 도구 (2026-11-23)
+- 녹화: `python main.py --mqtt HOST --jsonl recordings/날짜.jsonl` (의미 정보만, 원본 영상·음성 없음)
+- 재생 (R-23): `python -m recorder.replay 기록.jsonl --mqtt HOST [--from 초 --to 초 --speed 2 --loop]`
+  재생할 때마다 새 boot_id·seq 0부터·지금 시각으로 고쳐 보냄. 예시 기록: `recorder/samples/` (시연 공간 227초)
+- 실제 Node와 가짜 방 같이: `python -m publisher.fake_sender --mqtt HOST --skip room1`
+- 팀원이 접속하는 브로커: `scripts/broker_lan.sh` (비밀번호) / `--open` (핫스팟에서만, 비밀번호 없음)
+  MQTT 아이디·비밀번호는 환경 변수 `EYEAR_MQTT_USER`, `EYEAR_MQTT_PASSWORD` (명령어 인자로 받지 않음)
+- 팀원은 기본 설치(`pip install -e .`, pydantic·paho-mqtt·pyyaml)만으로 재생·가짜 송신기 실행 가능
+
 ## 6. 시나리오 (2026-11-04 확정, 에이전트 구성은 팀원3과 공유 필요)
 **A 한 사람의 흐름**: 방1에서 휴식·수면 → 일어나 거실로 나와 B 옆에 앉음. 거실 에어컨이 A의 등장에 맞춰 바뀌는 장면이 "신원을 알아서 생기는 변화"를 보여준다.
 시뮬레이션(평면도 기반, 단계별 재생): https://claude.ai/artifact/N7WDEP7PSUu17tnZa6hFd6
@@ -226,7 +235,9 @@ eyear-node/
 ### 배경
 - 여름 저녁. 공간: 방1, 방2, 거실, 세탁실 (**세탁실은 방1에만 인접**).
 - 가족은 MEMBER_A~D만 있음 (**손님 없음**). 등장인물은 A와 B뿐. 선호 온도(앱 설정): **A 24°C, B 26°C**.
-- **시연 영상의 A = MEMBER_D (이효창)** (2026-11-19 확정). 가짜 송신기 시나리오도 A = MEMBER_D. B = MEMBER_B (거실 가짜 데이터만).
+- **시연 영상 출연: A = 이효창 (MEMBER_D), B = 송정빈** (2026-11-23). 가짜 송신기 시나리오도 A = MEMBER_D.
+  B는 거실 가짜 데이터에만 나오며 지금 MEMBER_B. 송정빈의 얼굴 등록이 MEMBER_B인지 C인지 기록이 없음 →
+  카메라 앞에서 확인 후 C면 시나리오 B와 이효창 설정(B 연결)을 같이 바꿀 것.
 - 거실 소파: B는 위쪽, A는 t7에 아래쪽 자리에 앉음. 거실에는 실물 Node가 없어 가짜 송신기 데이터 (발표에서는 같은 Node가 있다고 가정).
 
 ### 사전 설정 (요약)

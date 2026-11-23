@@ -18,7 +18,7 @@ from audio.vad import SpeechSegmenter
 from audio.voice_session import VoiceSession
 from audio.wakeword import TextWakeWord
 from publisher import topics
-from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink
+from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink, parse_broker
 
 
 def build_session(config, source, sink: Sink, room_id: str, debug: bool = False,
@@ -58,10 +58,10 @@ def main() -> None:
         sinks.append(JsonlSink(args.jsonl))
     mqtt = None
     if args.mqtt:
-        host, _, port = args.mqtt.partition(":")
-        mqtt = MqttSink(host, int(port or 1883))
+        host, port = parse_broker(args.mqtt)
+        mqtt = MqttSink(host, port)
         sinks.append(mqtt)
-        status = NodeStatusPublisher(host, int(port or 1883), f"node_{args.room}", args.room)
+        status = NodeStatusPublisher(host, port, f"node_{args.room}", args.room)
     sink = MultiSink(sinks)
 
     source = WavSource(args.wav) if args.wav else MicStream(config.mic.device)

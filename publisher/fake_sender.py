@@ -25,7 +25,7 @@ import yaml
 from fusion.events import EventBuilder, RoomSnapshot
 from publisher import topics
 from publisher.fake_voice import VoiceResponder, parse_reply
-from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink
+from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink, parse_broker
 from schema.enums import Activity, AudioContext, IdentitySource, Light, Motion, OccupancyState, Posture
 from schema.family import load_family
 from schema.models import VoiceCommand
@@ -80,13 +80,15 @@ def load_scenario(path: Path | str, family: frozenset[str]) -> Scenario:
 
 
 class ScenarioPlayer:
-    def __init__(self, scenario: Scenario, sink: Sink, interval: float, manual: bool, loop: bool, voice_enabled: bool):
+    def __init__(self, scenario: Scenario, sink: Sink, interval: float, manual: bool, loop: bool, voice_enabled: bool,
+                 skip: frozenset[str] = frozenset()):
         self.scenario = scenario
         self.sink = sink
         self.interval = interval
         self.manual = manual
         self.loop = loop
         self.voice_enabled = voice_enabled
+        self.skip = skip  # 실제 Node가 맡는 방: 상태·음성 메시지를 보내지 않음
         self.boot_ids = {room: uuid4() for room in scenario.nodes}  # 가짜 Node마다 따로 (각자 켜진 것처럼)
         self.snapshots: dict[str, RoomSnapshot] = {}
         self._next = 0
@@ -129,6 +131,9 @@ class ScenarioPlayer:
             print(f"   기대: {step.expect}", flush=True)
         for command in step.voice_commands:
             room = command["room"]
+            if room in self.skip:
+                print(f"   ({room}은 실제 Node가 맡음 → \"{command['text']}\"는 실제로 말하기)", flush=True)
+                continue
             self.sink.publish(topics.voice_command(room), VoiceCommand(
                 boot_id=self.boot_ids[room],
                 node_id=self.scenario.nodes[room],
@@ -259,8 +264,7 @@ def build_sinks(args) -> tuple[MultiSink, MqttSink | None]:
         sinks.append(JsonlSink(args.jsonl))
     mqtt = None
     if args.mqtt:
-        host, _, port = args.mqtt.partition(":")
-        mqtt = MqttSink(host, int(port or 1883))
+        mqtt = MqttSink(*parse_broker(args.mqtt))
         sinks.append(mqtt)
     return MultiSink(sinks), mqtt
 
@@ -280,6 +284,8 @@ def main() -> None:
     parser.add_argument("--loop", action="store_true", help="시나리오가 끝나면 처음부터 반복")
     parser.add_argument("--heartbeat", type=float, default=1.0, help="heartbeat 주기(초)")
     parser.add_argument("--rooms", default="room1,room2,living,laundry", help="랜덤 모드의 방 목록")
+    parser.add_argument("--skip", default="", metavar="ROOMS",
+                        help="보내지 않을 방 (쉼표). 실제 Node와 같이 돌릴 때: --skip room1")
     parser.add_argument("--seed", type=int, default=None, help="랜덤 모드 시드")
     parser.add_argument("--mqtt", default=None, metavar="HOST[:PORT]", help="MQTT 브로커 (예: localhost)")
     parser.add_argument("--jsonl", default=None, metavar="PATH", help="JSONL 파일로도 기록")
@@ -293,21 +299,27 @@ def main() -> None:
     family = load_family()
     sink, mqtt = build_sinks(args)
 
+    skip = frozenset(r.strip() for r in args.skip.split(",") if r.strip())
     if args.mode == "scenario":
         scenario = load_scenario(args.scenario, family)
-        nodes = scenario.nodes
-        driver = ScenarioPlayer(scenario, sink, args.interval or 5.0, args.step, args.loop, mqtt is not None)
+        unknown = skip - scenario.nodes.keys()
+        if unknown:
+            parser.error(f"--skip: 시나리오에 없는 방 {sorted(unknown)}")
+        nodes = {room: node for room, node in scenario.nodes.items() if room not in skip}
+        driver = ScenarioPlayer(scenario, sink, args.interval or 5.0, args.step, args.loop, mqtt is not None, skip)
     else:
-        rooms = [r.strip() for r in args.rooms.split(",") if r.strip()]
+        rooms = [r.strip() for r in args.rooms.split(",") if r.strip() and r.strip() not in skip]
         nodes = {room: f"node_{room}" for room in rooms}
         driver = RandomWalker(rooms, family, args.interval or 2.0, args.seed)
+    if skip:
+        print(f"보내지 않는 방 (실제 Node가 맡음): {', '.join(sorted(skip))}", flush=True)
 
     boot_ids = getattr(driver, "boot_ids", None) or {room: uuid4() for room in nodes}
     statuses = []
     if mqtt:
         VoiceResponder(mqtt, sink, nodes, parse_reply(args.reply), boot_ids=boot_ids)
-        host, _, port = args.mqtt.partition(":")
-        statuses = [NodeStatusPublisher(host, int(port or 1883), node_id, room, boot_ids[room])
+        host, port = parse_broker(args.mqtt)
+        statuses = [NodeStatusPublisher(host, port, node_id, room, boot_ids[room])
                     for room, node_id in nodes.items()]
         print(f"MQTT 전송 중: {topics.PREFIX}/<room>/state (질문 수신: {topics.SPEAK_ALL_ROOMS})", flush=True)
 

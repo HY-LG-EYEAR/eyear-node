@@ -12,7 +12,7 @@ import threading
 import time
 
 from publisher import topics
-from publisher.sinks import MqttSink, Sink, summarize
+from publisher.sinks import MqttSink, Sink, parse_broker, summarize
 from schema.models import BOOT_ID, SpeakCommand, VoiceReply
 
 ANSWER_DELAY = 1.5  # 출력이 끝난 뒤 대답하기까지 걸리는 시간(초), 흉내만 냄
@@ -71,8 +71,7 @@ def main() -> None:
     parser.add_argument("--reply", default="응", help='대답 문장. "none"이면 응답 없음')
     args = parser.parse_args()
 
-    host, _, port = args.mqtt.partition(":")
-    mqtt = MqttSink(host, int(port or 1883))
+    mqtt = MqttSink(*parse_broker(args.mqtt))
     rooms = args.room or ["room1"]
     VoiceResponder(mqtt, mqtt, {room: f"node_{room}" for room in rooms}, parse_reply(args.reply))
     print(f"가짜 음성 Node 대기 중: {', '.join(rooms)} (Ctrl+C로 종료)")
