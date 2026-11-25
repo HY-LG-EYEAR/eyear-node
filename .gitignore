@@ -7,6 +7,8 @@ __pycache__/
 # 실행 결과물
 out/
 *.jsonl
+# 재생 예시 기록은 올림 (의미 정보만, 원본 영상·음성 없음)
+!recorder/samples/*.jsonl
 # 얼굴 임베딩 등 개인 데이터
 data/
 .DS_Store
