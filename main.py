@@ -158,7 +158,8 @@ def start_radar(closers: list, log_path: str | None = None) -> RadarInput | None
     def feed_10(b: bytes) -> None:
         for report in p10.feed(b):
             radar.on_ld2410(report)
-            write({"s": "ld2410c", "state": report.state.name, "me": report.moving_energy,
+            write({"s": "ld2410c", "state": report.state.name,
+                   "md": report.moving_distance_cm, "me": report.moving_energy,
                    "se": report.stationary_energy, "sd": report.stationary_distance_cm,
                    "mg": list(report.moving_gate_energy), "sg": list(report.stationary_gate_energy)})
 
