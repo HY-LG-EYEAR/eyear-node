@@ -28,7 +28,8 @@ from fusion.room_state import RoomState
 from publisher import topics
 from publisher.sinks import JsonlSink, MqttSink, MultiSink, NodeStatusPublisher, Sink, StdoutSink, parse_broker
 from schema.enums import Light
-from schema.family import load_family
+from enroll.watch import FileWatch
+from schema.family import DEFAULT_FAMILY_PATH, load_family
 
 
 def _thread(name: str, target, *args) -> threading.Thread:
@@ -60,7 +61,9 @@ def main() -> None:
     parser.add_argument("--source", default=None, help="카메라 번호 또는 동영상 파일 (기본: config/vision.yaml)")
     args = parser.parse_args()
 
-    family = load_family()
+    # 가족 목록은 바뀔 수 있음 (앱 등록, enroll.server): 같은 set을 모두가 같이 보고, 추가만 반영
+    family = set(load_family())
+    family_watch = FileWatch(DEFAULT_FAMILY_PATH)
     sinks: list[Sink] = [StdoutSink(args.stdout)] if args.stdout != "off" else []
     if args.jsonl:
         sinks.append(JsonlSink(args.jsonl))
@@ -104,6 +107,16 @@ def main() -> None:
 
     def publish_state():
         """방 상태를 한 번 계산해 (바뀌었거나 heartbeat 때) 보내고, 화면 표시용으로 돌려준다."""
+        if family_watch.changed():
+            try:
+                added = load_family() - family
+            except ValueError as e:
+                family_watch.reset()
+                print(f"가족 목록 다시 읽기 실패 (잠시 뒤 다시): {e}")
+            else:
+                family.update(added)
+                if added:
+                    print(f"가족 추가 반영: {', '.join(sorted(added))}")
         snapshot = room.snapshot()
         message = builder.update(snapshot)
         if message:

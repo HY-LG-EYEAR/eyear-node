@@ -16,6 +16,7 @@ The Node processes camera, microphone, and mmWave observations and sends semanti
 | `fusion/` | Local observation fusion and event construction |
 | `publisher/` | Event publishing and simulated input |
 | `recorder/` | Recording and replay module |
+| `enroll/` | Family face/voice enrollment from the app over the home network (features only, no raw media stored) |
 | `schema/` | Message models, JSON Schemas, and examples |
 | `config/` | Node configuration |
 | `tests/` | Tests |
@@ -24,4 +25,4 @@ Python 3.11. Dependencies are listed in [pyproject.toml](pyproject.toml).
 
 ## Interface
 
-[Node message specification](docs/schema_v0.md) · [Message examples](schema/examples/)
+[Node message specification](docs/schema_v0.md) · [Message examples](schema/examples/) · [Enrollment API (app → Node)](docs/enroll_api.md)

@@ -87,20 +87,38 @@ class VoiceGallery:
 
 class SpeakerIdentifier:
     def __init__(self, embed: Callable[[np.ndarray], np.ndarray], gallery: VoiceGallery,
-                 threshold: float = 0.65, margin: float = 0.05, min_seconds: float = 1.0):
+                 threshold: float = 0.65, margin: float = 0.05, min_seconds: float = 1.0, watch: bool = False):
+        """watch: 등록 폴더가 바뀌면 다시 읽음 (앱으로 등록할 때, 실행 중인 Node를 다시 켜지 않게)."""
+        from enroll.watch import FileWatch
+
         self.embed = embed
+        self.directory = gallery.directory
         self.centroids = gallery.centroids()
         self.threshold = threshold
         self.margin = margin
         self.min_seconds = min_seconds
+        self._watch = FileWatch(self.directory) if watch else None
+
+    def reload_if_changed(self) -> None:
+        if self._watch is None or not self._watch.changed():
+            return
+        try:
+            self.centroids = VoiceGallery(self.directory).centroids()
+        except (ValueError, OSError) as e:   # 쓰는 도중이면 다음 확인에서 다시
+            self._watch.reset()
+            print(f"목소리 등록 다시 읽기 실패 (잠시 뒤 다시): {e}")
+            return
+        print(f"목소리 등록 다시 읽음: {', '.join(sorted(self.centroids)) or '없음'}")
 
     def scores(self, audio: np.ndarray) -> dict[str, float]:
         """사람마다 코사인 유사도 (등록 확인·측정용)."""
+        self.reload_if_changed()
         e = self.embed(audio)
         return {name: float(e @ c) for name, c in self.centroids.items()}
 
     def identify(self, audio: np.ndarray) -> tuple[str, float]:
         """(이름, 신뢰도). 판단할 수 없으면 (UNKNOWN, 0.0)."""
+        self.reload_if_changed()
         if not self.centroids or len(audio) < self.min_seconds * SAMPLE_RATE:
             return IDENTITY_UNKNOWN, 0.0
         ranked = sorted(self.scores(audio).items(), key=lambda kv: kv[1], reverse=True)
@@ -116,13 +134,13 @@ def load_identifier(config) -> SpeakerIdentifier | None:
     if not config.enabled:
         return None
     gallery = VoiceGallery(ROOT / config.voices_dir)
-    if not gallery.samples:
-        print("화자 식별: 등록된 목소리 없음 → 끔 (python -m audio.enroll_voice --name MEMBER_X)")
-        return None
     try:
         embed = OnnxSpeakerEmbedder(config.model_path)
     except (ImportError, FileNotFoundError) as e:
         print(f"화자 식별: 끔 ({e})")
         return None
-    print(f"화자 식별 켜짐: {', '.join(sorted(gallery.samples))}")
-    return SpeakerIdentifier(embed, gallery, config.threshold, config.margin, config.min_seconds)
+    if gallery.samples:
+        print(f"화자 식별 켜짐: {', '.join(sorted(gallery.samples))}")
+    else:   # 등록이 없어도 켜 둠: 앱으로 등록하면 바로 반영
+        print("화자 식별: 등록된 목소리 없음 → 등록되면 자동 반영 (앱 또는 python -m audio.enroll_voice --name MEMBER_X)")
+    return SpeakerIdentifier(embed, gallery, config.threshold, config.margin, config.min_seconds, watch=True)

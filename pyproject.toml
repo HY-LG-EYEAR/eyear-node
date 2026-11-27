@@ -32,6 +32,8 @@ audio = [
 radar = ["pyserial>=3.5"]
 # 목소리로 누구인지 (화자 식별). onnxruntime 방식이라 torch 불필요 (SpeechBrain은 torchaudio가 지금 torch와 안 맞아 보류)
 speaker = ["sherpa-onnx>=2.0"]
+# 앱 등록 서버(enroll/): 앱 녹음(m4a 등)을 16kHz로 풀기. 얼굴은 vision, 목소리 특징값은 speaker도 필요
+enroll = ["av>=12"]
 # 휴식(RESTING) 판단용 MobileCLIP. 무거워서 따로 둠 (실제 Node에만 필요, 팀원은 설치 불필요)
 resting = [
     "torch>=2.5",
@@ -43,7 +45,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["schema*", "publisher*", "vision*", "audio*", "radar*", "fusion*", "recorder*"]
+include = ["schema*", "publisher*", "vision*", "audio*", "radar*", "fusion*", "recorder*", "enroll*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

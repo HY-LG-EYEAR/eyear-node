@@ -7,12 +7,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from enroll.watch import FileWatch
 from schema.enums import Light
+from schema.family import DEFAULT_FAMILY_PATH, load_family
 from vision.activity import ActivityJudge, ClipRestScorer, crop_person
 from vision.clip import load_clip
 from vision.config import VisionConfig, load_vision_config
 from vision.continuity import SinglePersonContinuity
-from vision.face_id import FaceGallery, FaceIdentifier
+from vision.face_id import FACE_DIR, FaceGallery, FaceIdentifier
 from vision.light import classify_light
 from vision.person_check import ClipPersonScorer, PersonVerifier
 from vision.pose import PoseEstimator
@@ -39,6 +41,9 @@ class VisionPipeline:
             print("등록된 얼굴:", ", ".join(f"{n}({len(e)}장)" for n, e in gallery.embeddings.items()))
         print("카메라 모델 불러오는 중...")
         self.faces = FaceIdentifier(gallery, self.config.face)
+        # 앱으로 등록(enroll.server)하면 다시 켜지 않고 반영
+        self.family = family
+        self._face_watch = FileWatch(FACE_DIR, DEFAULT_FAMILY_PATH)
         self.pose = PoseEstimator(self.config.pose)
         self.tracker = CameraTracker(self.config.face, self.config.pose, self.config.tracking)
         clip = load_clip(self.config.resting)
@@ -49,7 +54,22 @@ class VisionPipeline:
         tracking = self.config.tracking
         self.single = SinglePersonContinuity(tracking.single_person_hold_seconds) if tracking.single_person else None
 
+    def reload_faces_if_changed(self) -> None:
+        if not self._face_watch.changed():
+            return
+        try:
+            family = load_family()
+            if isinstance(self.family, set):
+                self.family.update(family)   # main.py와 같이 쓰는 가족 목록 (추가만)
+            self.faces.gallery = FaceGallery.load(family | set(self.family))
+        except (ValueError, OSError) as e:   # 쓰는 도중이면 다음 확인에서 다시
+            self._face_watch.reset()
+            print(f"얼굴 등록 다시 읽기 실패 (잠시 뒤 다시): {e}")
+            return
+        print("얼굴 등록 다시 읽음:", ", ".join(f"{n}({len(e)}장)" for n, e in self.faces.gallery.embeddings.items()))
+
     def process(self, frame: np.ndarray, now: float) -> VisionResult:
+        self.reload_faces_if_changed()
         light, lum = classify_light(frame, self.config.light)
         faces = self.faces.identify(frame)
         poses = self.pose.detect(frame, now)

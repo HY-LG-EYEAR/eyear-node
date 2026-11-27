@@ -233,6 +233,14 @@ eyear-node/
   MQTT 아이디·비밀번호는 환경 변수 `EYEAR_MQTT_USER`, `EYEAR_MQTT_PASSWORD` (명령어 인자로 받지 않음)
 - 팀원은 기본 설치(`pip install -e .`, pydantic·paho-mqtt·pyyaml)만으로 재생·가짜 송신기 실행 가능
 
+### 앱에서 얼굴·목소리 등록 (2026-11-27 확정 "A안", 형식은 예원과 합의 전 초안)
+- 앱이 사진·녹음을 **같은 와이파이의 Node로 바로** 보냄 → Node가 특징값만 저장, 원본은 메모리에서 버림.
+  앱 백엔드 DB(EC2)에는 identity·이름·선호 온도·등록 여부만 (생체정보 없음, R-10). Node 등록 CLI 방식은 그대로 유지.
+- `python -m enroll.server` (0.0.0.0:8770, 6자리 연결 코드 `X-EYEAR-Pairing`, 고정은 `EYEAR_PAIRING_CODE`). 형식: docs/enroll_api.md
+- 실행 중인 main.py는 data/faces·data/voices·config/family.yaml이 바뀌면 2초 안에 다시 읽음 (가족은 추가만 반영).
+- 폰 등록은 방 카메라·마이크와 조건이 달라 정확도 측정 필요 → 부족하면 그 방에서 `--append`.
+- 호칭("효창님")은 중앙 eyear-orchestrator `voice.DISPLAY_NAMES`(11-27). 나중에 앱 DB 이름으로 바꿀 수 있음.
+
 ## 6. 시나리오 (2026-11-04 확정, 에이전트 구성은 팀원3과 공유 필요)
 **A 한 사람의 흐름**: 방1에서 휴식·수면 → 일어나 거실로 나와 B 옆에 앉음. 거실 에어컨이 A의 등장에 맞춰 바뀌는 장면이 "신원을 알아서 생기는 변화"를 보여준다.
 시뮬레이션(평면도 기반, 단계별 재생): https://claude.ai/artifact/N7WDEP7PSUu17tnZa6hFd6
